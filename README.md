@@ -96,7 +96,7 @@ Responses include source metadata and retrieval timestamps where available. Hist
 - Health: https://mcp.factrail.online/healthz
 - Official MCP Registry: https://registry.modelcontextprotocol.io/?q=io.github.baronsigma%2Ffactrail
 - Glama: https://glama.ai/mcp/connectors/io.github.baronsigma/factrail
-- Smithery: https://smithery.ai/
+- Smithery: https://smithery.ai/servers/baronsigma/factrail
 
 ## Registry identity
 
