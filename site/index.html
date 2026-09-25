@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101418">
+  <meta name="description" content="FACTRAIL gives AI agents structured, source-linked facts. Connect the public MCP server for French company verification and indicative EU import assessments; more data rails can follow.">
+  <link rel="canonical" href="https://factrail.online/">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='15' fill='%23101418'/%3E%3Cpath d='M16 46V18h33M16 32h25M31 18v28' fill='none' stroke='%2389edbc' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E" type="image/svg+xml">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="FACTRAIL — Source-linked facts for AI agents">
+  <meta property="og:description" content="One MCP endpoint. Distinct data rails. Answers with provenance and explicit uncertainty.">
+  <meta property="og:url" content="https://factrail.online/">
+  <title>FACTRAIL — Source-linked facts for AI agents</title>
+  <style>
+    :root { color-scheme: dark; --bg:#101418; --panel:#192127; --line:#35434a; --text:#f2f5f2; --muted:#b0c0c1; --accent:#89edbc; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    a { color:var(--accent); text-underline-offset:3px; }
+    a:hover { color:#c4ffdf; }
+    .wrap { width:min(1100px,calc(100% - 40px)); margin:auto; }
+    header { border-bottom:1px solid var(--line); }
+    header .wrap { min-height:76px; display:flex; align-items:center; justify-content:space-between; gap:20px; }
+    .brand { color:var(--text); font-weight:800; letter-spacing:.13em; text-decoration:none; font-size:1.15rem; }
+    nav { display:flex; gap:22px; flex-wrap:wrap; }
+    nav a { color:var(--muted); text-decoration:none; font-size:.91rem; }
+    main { padding-bottom:100px; }
+    .hero { padding:92px 0 80px; max-width:850px; }
+    .eyebrow { color:var(--accent); text-transform:uppercase; font-size:.78rem; letter-spacing:.2em; font-weight:700; }
+    h1 { font-size:clamp(2.8rem,7vw,5.3rem); line-height:1.05; letter-spacing:-.055em; margin:18px 0 24px; }
+    .lead { color:var(--muted); font-size:clamp(1.12rem,2.5vw,1.35rem); max-width:690px; margin:0 0 32px; }
+    .buttons { display:flex; flex-wrap:wrap; gap:12px; }
+    .button { display:inline-flex; align-items:center; min-height:46px; border:1px solid var(--line); padding:9px 17px; border-radius:8px; text-decoration:none; color:var(--text); font-weight:650; }
+    .button.primary { background:var(--accent); color:#10251c; border-color:var(--accent); }
+    section { border-top:1px solid var(--line); padding:54px 0; }
+    h2 { font-size:clamp(1.65rem,3vw,2.25rem); line-height:1.2; margin:0 0 16px; letter-spacing:-.025em; }
+    h3 { font-size:1.17rem; margin:0 0 10px; }
+    p { max-width:740px; }
+    .muted { color:var(--muted); }
+    .grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:25px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:25px; }
+    .card p { color:var(--muted); margin:0 0 16px; }
+    .tag { display:inline-block; color:var(--accent); font-size:.74rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; margin-bottom:13px; }
+    code,pre { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; }
+    code { overflow-wrap:anywhere; }
+    pre { background:#0b1013; color:#d5eee2; border:1px solid var(--line); padding:18px; border-radius:9px; overflow:auto; }
+    .points { display:grid; grid-template-columns:repeat(3,1fr); gap:24px; margin-top:30px; }
+    .points strong { display:block; margin-bottom:5px; }
+    .points span { color:var(--muted); }
+    footer { border-top:1px solid var(--line); color:var(--muted); padding:25px 0 42px; font-size:.9rem; }
+    footer .wrap { display:flex; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+    footer a { color:var(--muted); }
+    @media (max-width:700px) { .hero{padding:68px 0 55px;} .grid,.points{grid-template-columns:1fr;} nav{gap:12px;} section{padding:45px 0;} }
+  </style>
+</head>
+<body>
+  <header><div class="wrap"><a class="brand" href="/">FACTRAIL</a><nav aria-label="Main navigation"><a href="#rails">Available rails</a><a href="#approach">How it works</a><a href="https://github.com/baronsigma/factrail">Documentation ↗</a></nav></div></header>
+  <main class="wrap">
+    <div class="hero">
+      <div class="eyebrow">Public MCP service</div>
+      <h1>Source-linked facts<br>for AI agents.</h1>
+      <p class="lead">Give an agent structured answers it can trace back to evidence. FACTRAIL brings distinct data domains together under one MCP endpoint, with clear boundaries when information is missing or uncertain.</p>
+      <div class="buttons"><a class="button primary" href="#connect">Connect FACTRAIL</a><a class="button" href="#rails">Explore the tools</a></div>
+    </div>
+    <section id="rails" aria-labelledby="rails-title">
+      <div class="eyebrow">Available now</div>
+      <h2 id="rails-title">Two tools. One evidence-first approach.</h2>
+      <p class="muted">FACTRAIL can expand into new rails. This list names only the tools currently exposed by the public MCP server.</p>
+      <div class="grid">
+        <article class="card"><span class="tag">Company facts</span><h3>Verify a French company</h3><p>Look up a SIREN or SIRET. Get official INSEE Sirene company and establishment facts alongside published BODACC events and source context.</p><code>verify_french_company</code></article>
+        <article class="card"><span class="tag">Trade · early version</span><h3>Assess an EU import</h3><p>Structure a pre-import decision: classification, duty, VAT, compliance, landed-cost and risk considerations. Any origin; EU destinations, with France best supported. Missing inputs and unavailable checks are stated explicitly.</p><code>assess_import</code></article>
+      </div>
+      <p class="muted">Import assessments are indicative, not binding customs decisions. Some live trade source checks are still unavailable. Always verify rates, classification and obligations against official sources before acting.</p>
+    </section>
+    <section id="approach" aria-labelledby="approach-title"><div class="eyebrow">The shared standard</div><h2 id="approach-title">Answers an agent can inspect.</h2><div class="points"><div><strong>Specific, structured answers</strong><span>Each tool addresses a defined real-world question in a machine-readable format.</span></div><div><strong>Traceable evidence</strong><span>Source details and time context accompany facts where available.</span></div><div><strong>Honest uncertainty</strong><span>Missing information, unavailable lookups and estimates are identified.</span></div></div><p class="muted">Company events and trade are the first rails. Additional domains can join the same service as they become available; the live tool list defines today's coverage.</p></section>
+    <section id="connect" aria-labelledby="connect-title"><div class="eyebrow">Get started</div><h2 id="connect-title">One endpoint for every rail.</h2><p class="muted">Add the remote Streamable HTTP URL to an MCP-capable client. No signup is required for the currently public tools.</p><pre><code>https://mcp.factrail.online/mcp</code></pre><p>Example: “Verify French company SIREN 356000000 and summarize its published events.”</p><p>Example: “Assess importing stainless-steel bottles from China into France and list the missing information.”</p><div class="buttons"><a class="button" href="https://github.com/baronsigma/factrail">Read the docs ↗</a><a class="button" href="https://mcp.factrail.online/healthz">Service status ↗</a></div></section>
+  </main>
+  <footer><div class="wrap"><span>FACTRAIL · Source-linked facts for AI agents</span><span><a href="https://github.com/baronsigma/factrail">GitHub</a> · <a href="https://glama.ai/mcp/connectors/io.github.baronsigma/factrail">Glama</a> · <a href="https://smithery.ai/servers/baronsigma/factrail">Smithery</a></span></div></footer>
+</body>
+</html>
