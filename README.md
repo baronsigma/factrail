@@ -1,65 +1,20 @@
-# Factrail
+# FACTRAIL
 
-**Verified facts for agents.**
+**Source-linked facts for AI agents.**
 
-Factrail is a public, read-only MCP service for verifying French companies and establishments by **SIREN** or **SIRET** using official **INSEE Sirene** data and published **BODACC** corporate events.
+FACTRAIL is a public, read-only MCP service that turns external data into structured answers an agent can inspect and cite. It is designed to grow across domains: each rail has a specific question, explicit sources, provenance, and clear treatment of missing or unavailable evidence.
 
-> This repository is the public discovery/documentation surface for Factrail. The production MCP service is hosted remotely.
+> This repository documents the public service and contains the website source. The production MCP implementation is hosted separately.
 
 ## Connect
 
-**Streamable HTTP MCP endpoint**
+Use the remote **Streamable HTTP** MCP endpoint:
 
 ```text
 https://mcp.factrail.online/mcp
 ```
 
-**Tool**
-
-```text
-verify_french_company
-```
-
-The tool accepts:
-
-- a 9-digit **SIREN**, or
-- a 14-digit **SIRET**
-
-and returns structured registry data with provenance.
-
-## What Factrail returns
-
-When available, Factrail returns:
-
-- legal identity
-- administrative status
-- registered establishment address
-- creation / cessation dates
-- NAF / APE activity
-- workforce band
-- INSEE source metadata
-- published BODACC corporate events
-- source URLs and retrieval timestamps
-
-Factrail distinguishes missing data from negative findings and does not infer legal or financial reliability from registry facts.
-
-## Example
-
-Ask an MCP-capable agent:
-
-> Check whether French company SIREN 356000000 is currently active and summarize notable published corporate events.
-
-An agent can discover `verify_french_company`, call Factrail, and use the returned INSEE + BODACC data to answer.
-
-## MCP client configuration
-
-For clients that accept a remote Streamable HTTP MCP URL, use:
-
-```text
-https://mcp.factrail.online/mcp
-```
-
-Example configuration:
+For clients using an `mcpServers` configuration:
 
 ```json
 {
@@ -71,53 +26,52 @@ Example configuration:
 }
 ```
 
-Client configuration formats vary, so use the remote MCP / Streamable HTTP option supported by your client.
+Client configuration formats vary. The server's `tools/list` response is the authoritative list of currently available capabilities.
 
-## Sources
+## Available now
 
-### INSEE Sirene
+| Rail | Tool | What it does |
+| --- | --- | --- |
+| Company facts | `verify_french_company` | Verifies a French company or establishment by nine-digit SIREN or 14-digit SIRET. Returns normalized INSEE Sirene registry facts and published BODACC events with source context. |
+| Trade | `assess_import` | Produces an indicative pre-import assessment for goods entering an EU destination from any origin. France is the best-supported destination in this early version. It organizes classification, duty, VAT, compliance, landed-cost and risk considerations, asks for missing information, and marks unavailable source checks explicitly. |
 
-Official French business-register data used for company and establishment identity, status and related registry fields.
+**Try asking an MCP-capable agent:**
 
-### BODACC
+- “Verify French company SIREN 356000000 and summarize its published corporate events.”
+- “Assess importing 100 insulated stainless-steel bottles from China into France for a goods value of EUR 2,000. What information is still needed?”
 
-Published French corporate notices used for event history such as modifications, accounts filings, sales/transfers and other published notices.
+`assess_import` is a decision aid, not a binding tariff ruling or a customs filing service. In the current version, some trade source adapters are unavailable; a modeled or indicative result must not be mistaken for a live official lookup. Review classification, rates, regulatory requirements and costs against applicable official sources before acting.
 
-## Provenance
+## The FACTRAIL approach
 
-Factrail is designed for agent workflows where the difference between a fact and an inference matters.
+An agent should be able to distinguish a sourced observation from an estimate, an inference, or an unavailable check. Rails aim to provide:
 
-Responses include source metadata and retrieval timestamps where available. Historical BODACC notices are reported as published events; their presence does not by itself imply a current legal or financial condition.
+1. **A specific answer** in a machine-readable shape.
+2. **Evidence and provenance** identifying the source where available.
+3. **Time context** such as publication or retrieval timestamps where available.
+4. **Explicit uncertainty** for missing inputs, unavailable sources and non-binding assessments.
 
-## Public links
+This is the common product contract as additional domains are added. Coverage, source availability and fields differ by tool; inspect each tool's description and output for its exact limits. Published notices are historical events and do not, by themselves, establish a company's current financial or legal condition.
 
-- Website: https://factrail.online
+## Growing the rails
+
+Company facts and trade are the current rails. Further domains may include corporate events, financials, procurement, supplier due diligence and other real-world data. These are directions for development, **not currently advertised MCP tools**. New capabilities will be added to the table above when they are live.
+
+## Links
+
+- Website: https://factrail.online/
 - MCP endpoint: https://mcp.factrail.online/mcp
 - Health: https://mcp.factrail.online/healthz
 - Official MCP Registry: https://registry.modelcontextprotocol.io/?q=io.github.baronsigma%2Ffactrail
 - Glama: https://glama.ai/mcp/connectors/io.github.baronsigma/factrail
 - Smithery: https://smithery.ai/servers/baronsigma/factrail
 
-## Registry identity
-
-```text
-io.github.baronsigma/factrail
-```
-
-Current public MCP endpoint:
-
-```text
-https://mcp.factrail.online/mcp
-```
+Registry identity: `io.github.baronsigma/factrail`.
 
 ## Privacy
 
-Factrail's usage telemetry is designed to measure real MCP tool calls without storing SIREN/SIRET inputs, raw request payloads, returned company data, raw IP addresses, authorization headers or cookies.
+FACTRAIL's usage telemetry is designed to count actual MCP tool calls without retaining SIREN/SIRET inputs, raw request payloads, returned company data, raw IP addresses, authorization headers or cookies.
 
-## Status
+## Website source
 
-Factrail is live as a public MCP service. The current scope is intentionally narrow: one deterministic company-verification tool backed by authoritative public sources.
-
----
-
-**Factrail — Verified facts for agents.**
+The static public site lives in [`site/`](site/). Its evergreen overview and current-tool table can be maintained independently: add a tool to the table only after it is deployed and observed in the MCP `tools/list` response.
