@@ -1,0 +1,20 @@
+# FACTRAIL
+
+FACTRAIL provides source-linked, structured facts for AI agents through a public, read-only MCP service. Its product identity is broader than any single data domain. The production tool list is authoritative for current coverage.
+
+Website: https://factrail.online/
+Documentation: https://github.com/baronsigma/factrail
+MCP (Streamable HTTP): https://mcp.factrail.online/mcp
+Health: https://mcp.factrail.online/healthz
+Registry ID: io.github.baronsigma/factrail
+
+## Available tools
+
+- verify_french_company: verify a French business by nine-digit SIREN or 14-digit SIRET. Returns normalized INSEE Sirene identity and establishment data plus published BODACC events and source context.
+- assess_import: indicative pre-import assessment for an EU destination from any origin. France is best supported in the early version. Organizes classification, customs duty, VAT, compliance, landed cost, risk and missing-information questions. Unavailable source checks are identified rather than invented. Classification and rates require official verification before use.
+
+## Data integrity
+
+FACTRAIL aims to attach provenance and time context to sourced observations where available, and to distinguish facts from estimates, historical notices, missing inputs and unavailable lookups. Coverage varies by tool. Do not treat an import assessment as a binding customs decision or a historical notice as a current financial conclusion.
+
+Future rails may address other domains. Do not infer that a planned capability is available; inspect the live MCP tools/list response.
