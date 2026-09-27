@@ -9,8 +9,8 @@
   "minMemoryMbytes": 256,
   "maxMemoryMbytes": 512,
   "usesStandbyMode": false,
-  "dockerfile": "../Dockerfile",
-  "readme": "../README.md",
+  "dockerfile": "./Dockerfile",
+  "readme": "./README.md",
   "input": "./input_schema.json",
   "output": "./output_schema.json",
   "storages": {"dataset": "./dataset_schema.json"}
