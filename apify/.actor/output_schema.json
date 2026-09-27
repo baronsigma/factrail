@@ -1,0 +1,19 @@
+{
+  "actorOutputSchemaVersion": 1,
+  "title": "FACTRAIL evidence output",
+  "description": "Successful billable evidence results are written to the default dataset. Free results and structured errors are written to the OUTPUT record in the default key-value store.",
+  "properties": {
+    "evidence_results": {
+      "type": "string",
+      "title": "Evidence results",
+      "description": "Canonical FACTRAIL EvidenceEnvelopes for successful billable verify and import assessment actions.",
+      "template": "{{links.apiDefaultDatasetUrl}}/items"
+    },
+    "free_results_and_errors": {
+      "type": "string",
+      "title": "Free results and errors",
+      "description": "Free receipt retrieval results, partial or insufficient assessments, and structured errors.",
+      "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OUTPUT"
+    }
+  }
+}
