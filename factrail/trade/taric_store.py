@@ -172,12 +172,12 @@ class TaricStore:
         url = A2M_RESULTS_URL.format(
             hs_code=hs_code, origin=origin.upper(), dest=destination.upper()
         )
-        logger.info("taric_fetch_start", extra={"url": url, "hs": hs_code, "origin": origin, "dest": destination})
+        logger.info("taric_fetch_start")
         t0 = _time.monotonic()
         resp = self._get_client().get(url)
         resp.raise_for_status()
         latency_ms = round((_time.monotonic() - t0) * 1000, 1)
-        logger.info("taric_fetch_ok", extra={"latency_ms": latency_ms, "hs": hs_code})
+        logger.info("taric_fetch_ok", extra={"latency_ms": latency_ms})
 
         html = resp.text
         version, version_date = _parse_a2m_version(html)
@@ -302,7 +302,7 @@ class TaricStore:
             data["_source"] = "live"
             return data
         except Exception as exc:
-            logger.warning("taric_live_fetch_failed", exc_info=True, extra={"hs": hs, "origin": origin, "dest": destination})
+            logger.warning("taric_live_fetch_failed")
             # Try serving stale cache as last resort
             cached = self.lookup(hs, origin, destination)
             if cached is not None and allow_stale:

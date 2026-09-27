@@ -358,13 +358,7 @@ def build_customs_block(
         source_used = result.get("_source", "unknown")
         logger.info(
             "taric_authoritative_lookup_ok",
-            extra={
-                "hs": hs_code,
-                "origin": origin_country,
-                "dest": destination_country,
-                "source": source_used,
-                "measures": len(taric_measures),
-            },
+            extra={"source": source_used, "measures": len(taric_measures)},
         )
         if taric_measures:
             authoritative = True
@@ -372,23 +366,18 @@ def build_customs_block(
             # Fetch succeeded but returned no parsed measures — treat as unavailable
             logger.warning(
                 "taric_authoritative_empty_measures",
-                extra={"hs": hs_code, "origin": origin_country, "dest": destination_country},
             )
             authoritative = False
             fallback_used = True
     except TaricUnavailable as exc:
         logger.warning(
             "taric_authoritative_unavailable",
-            exc_info=True,
-            extra={"hs": hs_code, "origin": origin_country, "dest": destination_country, "reason": exc.reason},
         )
         authoritative = False
         fallback_used = True
     except Exception as exc:
         logger.error(
             "taric_lookup_error",
-            exc_info=True,
-            extra={"hs": hs_code, "origin": origin_country, "dest": destination_country},
         )
         authoritative = False
         fallback_used = True

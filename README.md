@@ -1,10 +1,10 @@
 # FACTRAIL
 
-**Evidence infrastructure for AI agents.**
+**FACTRAIL is evidence infrastructure for AI agents.**
 
 Agents routinely need facts that can change: a company's registration status, a tariff rate, or the information needed to assess an import. FACTRAIL gives them structured answers with source references, coverage, freshness, and receipts they can retrieve later.
 
-FACTRAIL is a Python [Model Context Protocol](https://modelcontextprotocol.io/) server. This repository contains the v2.1 source, tests, and the public site. The hosted service may run a different release; check its live `tools/list` response before relying on a tool being deployed.
+FACTRAIL is a Python [Model Context Protocol](https://modelcontextprotocol.io/) server. This repository contains the v2.1.1 source, tests, and the public site. The hosted service may run a different release; check its live `tools/list` response before relying on a tool being deployed.
 
 ## Connect to the hosted service
 
@@ -21,6 +21,26 @@ MCP endpoint: **`https://mcp.factrail.online/mcp`** (Streamable HTTP)
 ```
 
 Client configuration varies. The endpoint's `tools/list` response is the source of truth for deployed capabilities. [Website](https://factrail.online/) · [Health endpoint](https://mcp.factrail.online/healthz)
+
+### MCP quickstart
+
+Call `factrail_verify` to check a French company:
+
+```json
+{"subject_type":"company_fr","identifier":"784671695","fields":["status","legal_name"]}
+```
+
+Call `factrail_assess` to evaluate an import scenario:
+
+```json
+{"assessment_type":"import","parameters":{"product":"750ml insulated stainless steel bottle","origin_country":"CN","destination_country":"FR","quantity":5,"goods_value":1000,"currency":"EUR","known_hs_code":"961700"}}
+```
+
+Use the returned `receipt_id` with `factrail_get_receipt`:
+
+```json
+{"receipt_id":"fr_<64 lowercase hex characters from a FACTRAIL response>"}
+```
 
 ## What the v2.1 source provides
 
@@ -111,6 +131,8 @@ python3 -m factrail.evidence.demand --days 7
 ```
 
 The offline suite uses mocks and fixtures. Live tests use the project's `--live` convention and require external access. The private demand report aggregates capability gaps without storing identifiers, company names, product descriptions, prompts, or full request payloads. [Evidence Core design](docs/evidence-core.md).
+
+For operators: [deployment checklist](docs/deployment-checklist.md). Release history: [changelog](CHANGELOG.md).
 
 ## License
 

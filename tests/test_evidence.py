@@ -72,7 +72,7 @@ def test_receipt_persistence(tmp_path):
     path = str(tmp_path / "receipts.db")
     saved = ReceiptRepository(path).save(sample_envelope())
     assert ReceiptRepository(path).get(saved.receipt_id) == saved
-    assert ReceiptRepository(path).get("fr_missing") is None
+    assert ReceiptRepository(path).get("fr_" + "0" * 64) is None
 
 
 def test_company_resolver_and_degraded_source():
@@ -111,7 +111,7 @@ async def test_mcp_tools_and_receipt(monkeypatch, tmp_path):
     assert payload["receipt_id"].startswith("fr_")
     fetched = await call("factrail_get_receipt", {"receipt_id": payload["receipt_id"]})
     assert fetched.structured_content == payload
-    assert (await call("factrail_get_receipt", {"receipt_id": "fr_missing"})).is_error
+    assert (await call("factrail_get_receipt", {"receipt_id": "fr_" + "0" * 64})).is_error
     assert (await call("factrail_verify", {"subject_type": "trade", "identifier": "784671695"})).is_error
     assert (await call("factrail_verify", {"subject_type": "company_fr", "identifier": "bad"})).is_error
     old = await call("verify_french_company", {"identifier": "784671695"})

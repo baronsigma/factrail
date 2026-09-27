@@ -261,7 +261,7 @@ class TestHealthEndpoints:
             assert r.status_code == 200
             data = r.json()
             assert data["status"] == "ready"
-            assert "cache" in data
+            assert set(data) == {"status"}
 
 
 @pytest.mark.asyncio

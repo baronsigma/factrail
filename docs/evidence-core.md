@@ -1,6 +1,6 @@
-# Evidence Core v2.1
+# Evidence Core in FACTRAIL v2.1.1
 
-FACTRAIL's Evidence Contract is independent of the product version. Package v2.1 emits contract `1.1` envelopes. Version `1.0` receipts remain readable.
+FACTRAIL's Evidence Contract is independent of the product version. Package v2.1.1 emits contract `1.1` envelopes. Version `1.0` receipts remain readable.
 
 ## Contract
 

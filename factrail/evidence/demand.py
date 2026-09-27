@@ -15,11 +15,8 @@ logger = logging.getLogger(__name__)
 TOKEN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
-def _safe(value: object) -> str:
-    return value if isinstance(value, str) and TOKEN.fullmatch(value) else "invalid_or_other"
-
-
 KNOWN_CAPABILITIES = {"company_fr", "import", "trade", "vat", "sanctions", "regulation", "product", "news", "web", "beneficial_ownership"}
+KNOWN_OPERATIONS = {"verify", "assess"}
 KNOWN_FIELDS = {"status", "legal_name", "legal_form", "head_office", "naf_code", "siren", "siret",
                 "trade_name", "creation_date", "cessation_date", "diffusion_status", "product",
                 "origin_country", "destination_country", "quantity", "goods_value", "currency",
@@ -27,6 +24,13 @@ KNOWN_FIELDS = {"status", "legal_name", "legal_form", "head_office", "naf_code",
                 "incoterm", "shipping_mode", "origin_location", "destination_location", "freight_cost",
                 "insurance_cost", "hs_code", "base_duty_rate_pct", "import_vat_rate_pct",
                 "estimated_total", "food_contact"}
+KNOWN_OUTCOMES = {"supported", "contradicted", "insufficient_evidence", "stale",
+                  "conflicting_sources", "invalid_input", "validation", "not_found",
+                  "upstream", "internal", "error", "unsupported_capability"}
+KNOWN_COVERAGE = {"sufficient", "partial", "insufficient"}
+KNOWN_CACHE_STATUS = {"hit", "miss", "stale", "unknown"}
+KNOWN_SOURCE_FAILURES = {"government_registry", "government_bulletin", "tariff_registry",
+                         "curated_or_external_reference", "internal_engine"}
 
 
 def _category(value: object, allowed: set[str]) -> str:
@@ -62,11 +66,11 @@ class DemandStore:
                 (timestamp,operation,capability,requested_fields,outcome,coverage,unresolved_fields,
                  unsupported_capability,source_failures,latency_ms,cache_status)
                  VALUES (?,?,?,?,?,?,?,?,?,?,?)""", (
-                time.time(), _safe(operation), _category(capability, KNOWN_CAPABILITIES), json.dumps(_safe_list(requested_fields)),
-                _safe(outcome), _safe(coverage) if coverage else None,
+                time.time(), _category(operation, KNOWN_OPERATIONS), _category(capability, KNOWN_CAPABILITIES), json.dumps(_safe_list(requested_fields)),
+                _category(outcome, KNOWN_OUTCOMES), _category(coverage, KNOWN_COVERAGE) if coverage else None,
                 json.dumps(_safe_list(unresolved_fields)), int(unsupported_capability),
-                json.dumps(sorted({_safe(v) for v in source_failures}) if isinstance(source_failures, list) else []), max(0.0, latency_ms),
-                _safe(cache_status) if cache_status else None))
+                json.dumps(sorted({_category(v, KNOWN_SOURCE_FAILURES) for v in source_failures}) if isinstance(source_failures, list) else []), max(0.0, latency_ms),
+                _category(cache_status, KNOWN_CACHE_STATUS) if cache_status else None))
 
     def report(self, days: int = 7) -> dict:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).timestamp()

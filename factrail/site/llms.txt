@@ -1,90 +1,35 @@
-# Factrail
+# FACTRAIL
 
-> Evidence infrastructure for AI agents.
+FACTRAIL is evidence infrastructure for AI agents. It exposes structured verification and assessment through MCP, with source provenance, coverage, freshness, conflicts, and retrievable receipts.
 
-FACTRAIL is a Model Context Protocol (MCP) server for evidence-backed French company verification and EU import assessment. Company data combines INSEE Sirene with BODACC legal notices. Import assessments reuse the existing Trade engine. Evidence Core receipts preserve source provenance and coverage.
+MCP endpoint (Streamable HTTP): https://mcp.factrail.online/mcp
+Website: https://factrail.online/
+Source and documentation: https://github.com/baronsigma/factrail
+Health: https://mcp.factrail.online/healthz
 
-## MCP Endpoint
+## Strategic tools in the v2.1.1 source
 
-- **URL**: `https://mcp.factrail.online/mcp`
-- **Transport**: Streamable HTTP (JSON)
-- **Protocol**: MCP 2026-07-28
+- `factrail_verify`: call before relying on a mutable fact about a supported subject. Current `subject_type`: `company_fr`. Supply a 9-digit SIREN or 14-digit SIRET as `identifier`; optional `fields` selects company fields such as `status`, `legal_name`, and `head_office`. Returns an EvidenceEnvelope.
+- `factrail_assess`: call for a structured domain scenario. Current `assessment_type`: `import`. `parameters` has the same required fields as `assess_import`: `product`, `origin_country`, `destination_country`, `quantity`, `goods_value`, and `currency`. Returns an EvidenceEnvelope.
+- `factrail_get_receipt`: call with a previously returned `receipt_id` to retrieve the stored EvidenceEnvelope. Malformed IDs return `invalid_input`; unknown valid IDs return `not_found`.
 
-## Tools
+The hosted deployment can lag the source release. Inspect its live `tools/list` response before selecting a tool.
 
-### `factrail_verify`
+## Legacy-compatible tools
 
-Verify a structured request. Current subject type: `company_fr`. Input: `subject_type`, `identifier` (9-digit SIREN or 14-digit SIRET), optional `fields`. Output: EvidenceEnvelope v1.1 with `status`, `subject`, `facts`, `evidence`, `conflicts`, `coverage`, `freshness`, `receipt_id`, `state_fingerprint`, `generated_at`, and `schema_version`. Facts cite evidence IDs. Unknown fields and unavailable sources remain explicit.
+- `verify_french_company`: existing INSEE Sirene and BODACC company response.
+- `assess_import`: existing indicative EU import response with classification, customs, VAT, compliance, and landed cost. It is not a binding customs ruling.
+- `analyze_company`: experimental legacy interface. Financial and credit values are placeholders, not verified analysis.
 
-### `factrail_assess`
+## Evidence semantics
 
-Assess a structured import scenario. Input: `assessment_type="import"`, `parameters` using the same fields as `assess_import`. Returns EvidenceEnvelope v1.1 with source, input, and derived facts. The existing Trade engine performs calculations.
+EvidenceEnvelope contract version is `1.1`, separate from the FACTRAIL package version. Facts cite evidence record IDs. `coverage` lists resolved and unresolved fields; unknown remains unknown. `freshness` records when supporting data was retrieved. `conflicts` preserves competing source assertions. Historical BODACC notices do not determine current registration status. Derived Trade calculations are labeled separately from external source facts.
 
-### `factrail_get_receipt`
+`receipt_id` identifies the evidence observation. `state_fingerprint` identifies the substantive factual state across observations. Both are deterministic; the receipt can be retrieved later.
 
-Input: `receipt_id` (`fr_` plus SHA-256 hex). Returns the saved EvidenceEnvelope or `not_found`. `receipt_id` identifies the evidence observation; `state_fingerprint` identifies substantive state across observations.
+## Current scope
 
-### `verify_french_company`
+Verification: French companies and establishments by SIREN/SIRET.
+Assessment: structured imports into EU destinations, with France best supported. Curated tariff fallback and unavailable source checks are explicit.
 
-Verify a French company by SIREN (9-digit) or SIRET (14-digit). Returns structured verified data from INSEE Sirene with BODACC company-event intelligence.
-
-**Input**
-- `identifier` (string, required): A 9-digit SIREN or 14-digit SIRET.
-
-**Output** (JSON)
-- Company legal name, SIREN, SIRET, address, activity codes, status
-- BODACC events: creations, modifications, removals, sales, collective proceedings, accounts filings
-
-**Example**
-```
-verify_french_company(identifier="784671695")
-```
-
-### `assess_import`
-
-Pre-import assessment for goods entering the EU. Returns structured classification, customs, VAT, compliance, landed cost, missing-information questions, risk profile, and source provenance.
-
-**Input** (example)
-```
-assess_import(
-  product="750ml insulated stainless steel drinking bottle",
-  origin_country="CN",
-  destination_country="FR",
-  quantity=5000,
-  goods_value=13500,
-  currency="EUR"
-)
-```
-
-**Output** (JSON)
-- Classification: HS/CN/TARIC candidates with confidence and alternatives
-- Customs: MFN duty rate, preferential rate, estimated duty, origin rules
-- VAT: import VAT rate and estimated amount
-- Compliance: requirements, restrictions, documents, warnings
-- Landed cost: goods value, freight, insurance, duty, VAT, estimated total
-- Missing information: explicit questions for the agent
-- Risk: classification, customs, compliance, cost-uncertainty levels
-- Sources: provenance for every consequential fact
-
-**Key principles**
-- Never fabricates customs rates or classifications
-- Returns `review_required: true` when classification is ambiguous
-- Asks explicit questions in `missing_information` when product details are missing
-- Marks every value's provenance status: verified, derived, estimated, inferred, or unavailable
-- V0 has curated reference data for a handful of HS headings; live TARIC/Access2Markets integration is future work
-
-## Data Sources
-
-- **INSEE Sirene API v3.11** — https://api.insee.fr/api-sirene/3.11 — Free, Open Licence 2.0, 30 req/min
-- **BODACC (DILA) Open Data** — https://bodacc-datadila.opendatasoft.com — Public, no auth required
-
-## Architecture
-
-- Remote MCP server (Streamable HTTP) at `mcp.factrail.online`
-- SQLite cache with TTL and stale-on-upstream-failure
-- Per-client rate limiting
-- Read-only, non-destructive, open-world data
-
-## License
-
-Free for agent use. Data from INSEE and BODACC under their respective open licenses.
+FACTRAIL does not support arbitrary natural-language claims, general web search, generic URL fetching, sanctions verification, beneficial ownership, watches, or other unlisted domains. Use `tools/list` for the deployed surface.

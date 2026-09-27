@@ -45,24 +45,23 @@ class SqliteCache:
     def _init_db(self) -> None:
         conn = self._get_conn()
         ver = conn.execute("PRAGMA user_version").fetchone()[0]
-        if ver < SCHEMA_VERSION:
-            conn.execute("DROP TABLE IF EXISTS cache")
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS cache (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL,
-                    expires_at REAL NOT NULL,
-                    created_at REAL NOT NULL,
-                    updated_at REAL NOT NULL,
-                    schema_version INTEGER NOT NULL DEFAULT 1,
-                    source TEXT
-                )
-                """
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS cache (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                expires_at REAL NOT NULL,
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                schema_version INTEGER NOT NULL DEFAULT 1,
+                source TEXT
             )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)")
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_cache_expires ON cache(expires_at)")
+        if ver < SCHEMA_VERSION:
             conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
-            conn.commit()
+        conn.commit()
 
     def _make_key(self, identifier: str) -> str:
         return hashlib.sha256(identifier.encode()).hexdigest()

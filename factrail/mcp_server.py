@@ -102,7 +102,7 @@ async def handle_call_tool(
 
 app = Server(
     "factrail",
-    version="2.1.0",
+    version="2.1.1",
     on_list_tools=handle_list_tools,
     on_call_tool=handle_call_tool,
 )
@@ -115,7 +115,7 @@ async def run() -> None:
             write_stream,
             InitializationOptions(
                 server_name="factrail",
-                server_version="2.1.0",
+                server_version="2.1.1",
                 capabilities=app.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},

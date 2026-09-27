@@ -78,10 +78,10 @@ class BodaccAdapter:
                 )
             except httpx.TimeoutException as exc:
                 last_exc = exc
-                logger.warning("BODACC timeout on attempt %d: %s", attempt + 1, exc)
+                logger.warning("BODACC timeout on attempt %d", attempt + 1)
             except httpx.RequestError as exc:
                 last_exc = exc
-                logger.warning("BODACC request error on attempt %d: %s", attempt + 1, exc)
+                logger.warning("BODACC request error on attempt %d", attempt + 1)
 
         raise BodaccUnavailableError(
             f"BODACC unreachable after {self.max_retries} attempts: {last_exc}"

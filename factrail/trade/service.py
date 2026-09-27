@@ -108,7 +108,6 @@ def assess_import(
     logger.info(
         "trade_assessment_start",
         extra={
-            "product": input.product[:120],
             "origin": input.origin_country,
             "destination": input.destination_country,
             "quantity": input.quantity,

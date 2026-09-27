@@ -8,7 +8,7 @@ Suggested website: `https://factrail.online/`
 
 Suggested topics: `mcp`, `ai-agents`, `evidence`, `verification`, `python`, `french-companies`, `international-trade`.
 
-The source repository includes v2.1 Evidence Core tools. Keep directory listings of the hosted service aligned with its live `tools/list` response; the hosted deployment may be behind the source release.
+The source repository includes v2.1.1 Evidence Core tools. Keep directory listings of the hosted service aligned with its live `tools/list` response; the hosted deployment may be behind the source release.
 
 Use the same core positioning across directories. Keep the umbrella description stable; update the **Available now** sentence only when a new tool is live and visible in MCP `tools/list`.
 

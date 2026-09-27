@@ -106,8 +106,8 @@ class PerClientRateLimiter:
             violations = current_count - self.requests_per_window
             if violations >= self.block_excessive_after:
                 self._block_until[client_id] = now + self.block_duration
-                logger.warning("Blocked client %s for %ds (excessive: %d)",
-                               client_id[:8], self.block_duration, violations)
+                logger.warning("Client rate limit block for %ds (excessive: %d)",
+                               self.block_duration, violations)
 
             return {
                 "allowed": False,

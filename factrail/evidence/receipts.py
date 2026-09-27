@@ -4,10 +4,13 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from datetime import datetime, timezone
 
 from .models import EvidenceEnvelope
+
+RECEIPT_ID_PATTERN = re.compile(r"fr_[0-9a-f]{64}\Z")
 
 
 def receipt_id_for(envelope: EvidenceEnvelope) -> str:
@@ -86,6 +89,8 @@ class ReceiptRepository:
         return completed
 
     def get(self, receipt_id: str) -> EvidenceEnvelope | None:
+        if not isinstance(receipt_id, str) or RECEIPT_ID_PATTERN.fullmatch(receipt_id) is None:
+            raise ValueError("receipt_id must be fr_ followed by 64 lowercase hex characters")
         with sqlite3.connect(self.db_path, timeout=30) as conn:
             row = conn.execute("SELECT envelope FROM evidence_receipts WHERE receipt_id = ?", (receipt_id,)).fetchone()
         if not row:

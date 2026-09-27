@@ -1,20 +1,35 @@
 # FACTRAIL
 
-FACTRAIL provides source-linked, structured facts for AI agents through a public, read-only MCP service. Its product identity is broader than any single data domain. The production tool list is authoritative for current coverage.
+FACTRAIL is evidence infrastructure for AI agents. It exposes structured verification and assessment through MCP, with source provenance, coverage, freshness, conflicts, and retrievable receipts.
 
+MCP endpoint (Streamable HTTP): https://mcp.factrail.online/mcp
 Website: https://factrail.online/
-Documentation: https://github.com/baronsigma/factrail
-MCP (Streamable HTTP): https://mcp.factrail.online/mcp
+Source and documentation: https://github.com/baronsigma/factrail
 Health: https://mcp.factrail.online/healthz
-Registry ID: io.github.baronsigma/factrail
 
-## Available tools
+## Strategic tools in the v2.1.1 source
 
-- verify_french_company: verify a French business by nine-digit SIREN or 14-digit SIRET. Returns normalized INSEE Sirene identity and establishment data plus published BODACC events and source context.
-- assess_import: indicative pre-import assessment for an EU destination from any origin. France is best supported in the early version. Organizes classification, customs duty, VAT, compliance, landed cost, risk and missing-information questions. Unavailable source checks are identified rather than invented. Classification and rates require official verification before use.
+- `factrail_verify`: call before relying on a mutable fact about a supported subject. Current `subject_type`: `company_fr`. Supply a 9-digit SIREN or 14-digit SIRET as `identifier`; optional `fields` selects company fields such as `status`, `legal_name`, and `head_office`. Returns an EvidenceEnvelope.
+- `factrail_assess`: call for a structured domain scenario. Current `assessment_type`: `import`. `parameters` has the same required fields as `assess_import`: `product`, `origin_country`, `destination_country`, `quantity`, `goods_value`, and `currency`. Returns an EvidenceEnvelope.
+- `factrail_get_receipt`: call with a previously returned `receipt_id` to retrieve the stored EvidenceEnvelope. Malformed IDs return `invalid_input`; unknown valid IDs return `not_found`.
 
-## Data integrity
+The hosted deployment can lag the source release. Inspect its live `tools/list` response before selecting a tool.
 
-FACTRAIL aims to attach provenance and time context to sourced observations where available, and to distinguish facts from estimates, historical notices, missing inputs and unavailable lookups. Coverage varies by tool. Do not treat an import assessment as a binding customs decision or a historical notice as a current financial conclusion.
+## Legacy-compatible tools
 
-Future rails may address other domains. Do not infer that a planned capability is available; inspect the live MCP tools/list response.
+- `verify_french_company`: existing INSEE Sirene and BODACC company response.
+- `assess_import`: existing indicative EU import response with classification, customs, VAT, compliance, and landed cost. It is not a binding customs ruling.
+- `analyze_company`: experimental legacy interface. Financial and credit values are placeholders, not verified analysis.
+
+## Evidence semantics
+
+EvidenceEnvelope contract version is `1.1`, separate from the FACTRAIL package version. Facts cite evidence record IDs. `coverage` lists resolved and unresolved fields; unknown remains unknown. `freshness` records when supporting data was retrieved. `conflicts` preserves competing source assertions. Historical BODACC notices do not determine current registration status. Derived Trade calculations are labeled separately from external source facts.
+
+`receipt_id` identifies the evidence observation. `state_fingerprint` identifies the substantive factual state across observations. Both are deterministic; the receipt can be retrieved later.
+
+## Current scope
+
+Verification: French companies and establishments by SIREN/SIRET.
+Assessment: structured imports into EU destinations, with France best supported. Curated tariff fallback and unavailable source checks are explicit.
+
+FACTRAIL does not support arbitrary natural-language claims, general web search, generic URL fetching, sanctions verification, beneficial ownership, watches, or other unlisted domains. Use `tools/list` for the deployed surface.

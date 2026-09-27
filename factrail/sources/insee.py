@@ -139,12 +139,12 @@ class InseeAdapter:
                 )
             except httpx.TimeoutException as exc:
                 last_exc = exc
-                logger.warning("Timeout on attempt %d for %s", attempt + 1, path)
+                logger.warning("INSEE timeout on attempt %d", attempt + 1)
                 self.stats["total_retries"] += 1
             except httpx.RequestError as exc:
                 last_exc = exc
                 logger.warning(
-                    "Request error on attempt %d for %s: %s", attempt + 1, path, exc
+                    "INSEE request error on attempt %d", attempt + 1
                 )
                 self.stats["total_retries"] += 1
 
@@ -194,9 +194,9 @@ class InseeAdapter:
     def lookup(self, identifier: str) -> FrenchCompany:
         kind = self.classify(identifier)
         if kind == "siren" and not self.validate_siren(identifier):
-            logger.warning("SIREN failed Luhn check but proceeding: %s", identifier)
+            logger.warning("SIREN failed Luhn check but proceeding")
         if kind == "siret" and not self.validate_siret(identifier):
-            logger.warning("SIRET failed Luhn check but proceeding: %s", identifier)
+            logger.warning("SIRET failed Luhn check but proceeding")
 
         siren_retrieved_at = datetime.now(timezone.utc)
         if kind == "siren":
@@ -277,14 +277,14 @@ class InseeAdapter:
             company.events = events_section
         except BodaccUnavailableError as exc:
             error_code = self._map_bodacc_error(exc)
-            logger.warning("BODACC unavailable: %s (error=%s)", exc, error_code)
+            logger.warning("BODACC unavailable (error=%s)", error_code)
             company.events = build_unavailable_events(
                 datetime.now(timezone.utc),
                 error=error_code,
             )
         except Exception as exc:
             error_code = self._map_bodacc_error(exc)
-            logger.exception("Unexpected BODACC error")
+            logger.error("Unexpected BODACC error (error=%s)", error_code)
             company.events = build_unavailable_events(
                 datetime.now(timezone.utc),
                 error=error_code,

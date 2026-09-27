@@ -401,10 +401,7 @@ class TaricAdapter:
         # For V0, we document the approach but the live path requires
         # integration with the browser_exec tool from the service layer.
 
-        logger.info(
-            "TARIC live lookup requested for heading %s, full code %s, destination %s",
-            heading, full_code, destination
-        )
+        logger.info("TARIC live lookup requested")
 
         # Not implemented directly here — browser access requires the
         # browser_exec tool which is not available inside this module.

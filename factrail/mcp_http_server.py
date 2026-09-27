@@ -1,4 +1,4 @@
-"""Factrail v2.1 — Production-ready remote MCP server (Streamable HTTP).
+"""Factrail v2.1.1 — Production-ready remote MCP server (Streamable HTTP).
 
 Aligned with MCP specification 2026-07-28:
 - POST /mcp: stateless JSON-RPC requests (no protocol sessions, no GET streams)
@@ -47,6 +47,8 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from .cache import get_cache
 from .evidence.models import EvidenceEnvelope
+from .evidence.company_fr import FIELD_MAP
+from .evidence.receipts import RECEIPT_ID_PATTERN
 from .models import FrenchCompany
 from .trade.models import AssessImportInput
 from .per_client_limiter import get_per_client_limiter
@@ -80,7 +82,6 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
                 "request_id": request_id,
                 "method": request.method,
                 "path": request.url.path,
-                "client_ip": request.client.host if request.client else "unknown",
             },
         )
 
@@ -116,7 +117,7 @@ class OriginValidationMiddleware(BaseHTTPMiddleware):
             origin = request.headers.get("origin")
             if origin is not None:
                 if self.allowed_origins and origin not in self.allowed_origins:
-                    logger.warning("Origin rejected: %s", origin)
+                    logger.warning("Origin rejected")
                     return JSONResponse(
                         status_code=403,
                         content={"error": "Forbidden: invalid Origin"},
@@ -166,29 +167,29 @@ async def handle_list_tools(
         tools=[
             types.Tool(
                 name="factrail_assess",
-                description="Assess an import scenario with the existing Trade engine and return an EvidenceEnvelope.",
+                description="Perform an evidence-backed structured assessment. Supports import scenarios and returns an EvidenceEnvelope with source coverage and a receipt.",
                 input_schema={"type": "object", "properties": {
-                    "assessment_type": {"type": "string", "enum": ["import"]},
-                    "parameters": AssessImportInput.model_json_schema()},
-                    "required": ["assessment_type", "parameters"]},
+                    "assessment_type": {"type": "string", "enum": ["import"], "description": "Currently only import is supported."},
+                    "parameters": {**AssessImportInput.model_json_schema(), "additionalProperties": False}},
+                    "required": ["assessment_type", "parameters"], "additionalProperties": False},
                 output_schema=EvidenceEnvelope.model_json_schema(),
                 annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True),
             ),
             types.Tool(
                 name="factrail_verify",
-                description="Verify structured claims through the Evidence Core. Currently supports company_fr by SIREN or SIRET.",
+                description="Establish evidence-backed facts about a supported subject. Supports French companies by SIREN or SIRET; returns facts, provenance, coverage, and a receipt.",
                 input_schema={"type": "object", "properties": {
-                    "subject_type": {"type": "string", "enum": ["company_fr"]},
-                    "identifier": {"type": "string", "pattern": "^([0-9]{9}|[0-9]{14})$"},
-                    "fields": {"type": "array", "items": {"type": "string"}}},
-                    "required": ["subject_type", "identifier"]},
+                    "subject_type": {"type": "string", "enum": ["company_fr"], "description": "Currently only French companies are supported."},
+                    "identifier": {"type": "string", "pattern": "^([0-9]{9}|[0-9]{14})$", "description": "A 9-digit SIREN or 14-digit SIRET."},
+                    "fields": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": sorted(FIELD_MAP)}, "description": "Optional company fields to resolve; omit for the default set."}},
+                    "required": ["subject_type", "identifier"], "additionalProperties": False},
                 output_schema=EvidenceEnvelope.model_json_schema(),
                 annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True),
             ),
             types.Tool(
                 name="factrail_get_receipt",
-                description="Retrieve a persisted EvidenceEnvelope by receipt ID.",
-                input_schema={"type": "object", "properties": {"receipt_id": {"type": "string", "pattern": "^fr_[0-9a-f]{64}$"}}, "required": ["receipt_id"]},
+                description="Retrieve the immutable EvidenceEnvelope associated with a FACTRAIL receipt ID.",
+                input_schema={"type": "object", "properties": {"receipt_id": {"type": "string", "pattern": "^fr_[0-9a-f]{64}$", "description": "A FACTRAIL evidence observation ID."}}, "required": ["receipt_id"], "additionalProperties": False},
                 output_schema=EvidenceEnvelope.model_json_schema(),
                 annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
             ),
@@ -198,8 +199,7 @@ async def handle_list_tools(
                     "Verify a French company by SIREN (9-digit) or SIRET (14-digit). "
                     "Returns structured verified data from INSEE Sirene (official company register) "
                     "with BODACC company-event intelligence (legal notices, proceedings, filings). "
-                    "Read-only — does not modify any state. Accesses open-world data sources "
-                    "including the French government's official APIs."
+                    "Legacy response shape; use factrail_verify for an EvidenceEnvelope."
                 ),
                 input_schema={
                     "type": "object",
@@ -221,17 +221,9 @@ async def handle_list_tools(
             types.Tool(
                 name="assess_import",
                 description=(
-                    "Assess an import into the EU from any origin country. "
-                    "France is the best-supported destination in V0. "
-                    "Returns structured classification, customs duty, import VAT, "
-                    "compliance requirements, landed cost, missing-information questions, "
-                    "risk profile, and source-backed evidence. "
-                    "This is a pre-purchase / pre-import decision tool — it does NOT file "
-                    "customs declarations, book freight, or track shipments. "
-                    "Returned classifications are NOT legally binding and must be reviewed "
-                    "before use in customs filings. "
-                    "Where information is missing or a source is unavailable, the tool returns "
-                    "explicit questions and unavailable markers rather than fabricated data."
+                    "Legacy EU import assessment response with classification, duty, VAT, compliance, "
+                    "landed cost, and missing inputs. Use factrail_assess for an EvidenceEnvelope. "
+                    "Results are indicative and are not binding customs rulings."
                 ),
                 input_schema={
                     "type": "object",
@@ -327,12 +319,7 @@ async def handle_list_tools(
             ),
             types.Tool(
                 name="analyze_company",
-                description=(
-                    "Analyze a company's financial health, credit risk, and market position. "
-                    "Returns structured credit rating, financial ratios, risk factors, and market analysis. "
-                    "V0.1 returns placeholder data for demonstration; live data integration is future work. "
-                    "Read-only — does not modify any state. Accesses open-world data sources."
-                ),
+                description="Legacy experimental company analysis. Financial and credit figures are placeholders, not verified risk assessments.",
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -431,7 +418,7 @@ async def _handle_factrail_verify(params: types.CallToolRequestParams) -> types.
         request = VerificationRequest.model_validate(params.arguments or {})
         # Reuse the production cache, source error mapping, and stale fallback.
         if request.subject_type != "company_fr":
-            return _evidence_error("invalid_input", f"unsupported subject_type: {request.subject_type}")
+            return _evidence_error("unsupported_capability", "unsupported subject_type")
         from .evidence.company_fr import resolve_company_fr
         if not request.identifier.isdigit() or len(request.identifier) not in (9, 14):
             return _evidence_error("invalid_input", "identifier must be a 9-digit SIREN or 14-digit SIRET")
@@ -444,7 +431,7 @@ async def _handle_factrail_verify(params: types.CallToolRequestParams) -> types.
     except (ModelValidationError, ValueError) as exc:
         return _evidence_error("invalid_input", str(exc))
     except Exception as exc:
-        logger.exception("Unhandled error in factrail_verify")
+        logger.error("Unhandled error in factrail_verify")
         return _evidence_error("internal", str(exc))
 
 
@@ -455,28 +442,38 @@ async def _handle_factrail_assess(params: types.CallToolRequestParams) -> types.
     from .trade.models import AssessImportInput
 
     args = params.arguments or {}
-    if args.get("assessment_type") != "import":
-        return _evidence_error("invalid_input", "unsupported assessment_type")
+    if not isinstance(args.get("assessment_type"), str):
+        return _evidence_error("invalid_input", "assessment_type is required")
+    if args["assessment_type"] != "import":
+        return _evidence_error("unsupported_capability", "unsupported assessment_type")
     try:
-        parameters = AssessImportInput.model_validate(args.get("parameters", {}))
+        if set(args) - {"assessment_type", "parameters"}:
+            return _evidence_error("invalid_input", "unsupported request field")
+        raw_parameters = args.get("parameters")
+        if not isinstance(raw_parameters, dict):
+            return _evidence_error("invalid_input", "parameters must be an object")
+        if set(raw_parameters) - set(AssessImportInput.model_fields):
+            return _evidence_error("invalid_input", "unsupported import parameter")
+        parameters = AssessImportInput.model_validate(raw_parameters)
         return _evidence_result(ReceiptRepository().save(assess_import_evidence(parameters)))
     except ModelValidationError as exc:
         return _evidence_error("invalid_input", str(exc))
     except Exception as exc:
-        logger.exception("Unhandled error in factrail_assess")
+        logger.error("Unhandled error in factrail_assess")
         return _evidence_error("internal", str(exc))
 
 
 async def _handle_factrail_get_receipt(params: types.CallToolRequestParams) -> types.CallToolResult:
     from .evidence.receipts import ReceiptRepository
-    receipt_id = (params.arguments or {}).get("receipt_id")
-    if not isinstance(receipt_id, str):
-        return _evidence_error("invalid_input", "receipt_id is required")
+    arguments = params.arguments or {}
+    receipt_id = arguments.get("receipt_id")
+    if set(arguments) != {"receipt_id"} or not isinstance(receipt_id, str) or RECEIPT_ID_PATTERN.fullmatch(receipt_id) is None:
+        return _evidence_error("invalid_input", "receipt_id must be fr_ followed by 64 lowercase hex characters")
     try:
         result = ReceiptRepository().get(receipt_id)
         return _evidence_result(result) if result else _evidence_error("not_found", "receipt not found")
     except Exception as exc:
-        logger.exception("Unhandled error in factrail_get_receipt")
+        logger.error("Unhandled error in factrail_get_receipt")
         return _evidence_error("internal", str(exc))
 
 
@@ -542,7 +539,7 @@ async def _handle_assess_import(
     try:
         result = assess_import(input)
     except Exception as exc:
-        logger.exception("Unhandled error in assess_import")
+        logger.error("Unhandled error in assess_import")
         return types.CallToolResult(
             content=[
                 types.TextContent(
@@ -589,7 +586,7 @@ async def _handle_analyze_company(
     try:
         result = analyze_company(input)
     except Exception as exc:
-        logger.exception("Unhandled error in analyze_company")
+        logger.error("Unhandled error in analyze_company")
         return types.CallToolResult(
             content=[
                 types.TextContent(
@@ -618,7 +615,7 @@ async def _cached_lookup(identifier: str) -> FrenchCompany | dict:
 
     cached = cache.get(identifier, allow_stale=False)
     if cached is not None:
-        logger.info("cache_hit", extra={"identifier": identifier})
+        logger.info("cache_hit")
         if is_telemetry_enabled():
             _set_cache_status("hit", "cache_only")
         try:
@@ -642,20 +639,20 @@ async def _cached_lookup(identifier: str) -> FrenchCompany | dict:
             _set_cache_status(upstream="available")
         return result
     except ValidationError as exc:
-        logger.info("validation_error: %s", str(exc)[:100])
+        logger.info("validation_error")
         if is_telemetry_enabled():
             _set_cache_status(upstream="available")
         return {"error": "validation", "message": str(exc)}
     except NotFoundError as exc:
-        logger.info("not_found: %s", str(exc)[:100])
+        logger.info("not_found")
         if is_telemetry_enabled():
             _set_cache_status(upstream="available")
         return {"error": "not_found", "message": str(exc)}
     except UpstreamError as exc:
-        logger.warning("upstream_error: %s", str(exc)[:100])
+        logger.warning("upstream_error")
         stale = cache.get(identifier, allow_stale=True)
         if stale is not None:
-            logger.info("cache_stale_served", extra={"identifier": identifier})
+            logger.info("cache_stale_served")
             if is_telemetry_enabled():
                 _set_cache_status("stale", "cache_only")
             try:
@@ -666,7 +663,7 @@ async def _cached_lookup(identifier: str) -> FrenchCompany | dict:
             _set_cache_status(upstream="unavailable")
         return {"error": "upstream", "message": str(exc)}
     except Exception as exc:
-        logger.exception("Unexpected error in verify_french_company")
+        logger.error("Unexpected error in verify_french_company")
         if is_telemetry_enabled():
             _set_cache_status(upstream="unknown")
         return {"error": "internal", "message": str(exc)}
@@ -678,7 +675,7 @@ async def _cached_lookup(identifier: str) -> FrenchCompany | dict:
 
 app = Server(
     "factrail",
-    version="2.1.0",
+    version="2.1.1",
     on_list_tools=handle_list_tools,
     on_call_tool=handle_call_tool,
 )
@@ -695,12 +692,13 @@ async def healthz(request: Request) -> Response:
 async def readyz(request: Request) -> Response:
     try:
         cache = get_cache()
-        cache_stats = cache.stats()
-        return JSONResponse({"status": "ready", "cache": cache_stats})
-    except Exception as exc:
-        return JSONResponse(
-            {"status": "not_ready", "error": str(exc)}, status_code=503
-        )
+        cache._get_conn().execute("SELECT 1").fetchone()
+        from .evidence.receipts import ReceiptRepository
+        ReceiptRepository(db_path=cache.db_path)
+        return JSONResponse({"status": "ready"})
+    except Exception:
+        logger.error("Readiness check failed")
+        return JSONResponse({"status": "not_ready"}, status_code=503)
 
 
 # ---------------------------------------------------------------------------
@@ -841,7 +839,7 @@ class FactrailServer:
             except NotImplementedError:
                 pass
 
-        logger.info("factrail_v2.0_listening", extra={"host": self.host, "port": self.port})
+        logger.info("factrail_v2.1.1_listening", extra={"host": self.host, "port": self.port})
         await server.serve()
 
     def _request_shutdown(self) -> None:
