@@ -1,0 +1,301 @@
+{
+  "factrail_assess": {
+    "additionalProperties": false,
+    "properties": {
+      "assessment_type": {
+        "description": "Currently only import is supported.",
+        "enum": [
+          "import"
+        ],
+        "type": "string"
+      },
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Required + optional inputs for assess_import.",
+        "properties": {
+          "currency": {
+            "examples": [
+              "EUR"
+            ],
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Currency",
+            "type": "string"
+          },
+          "destination_country": {
+            "examples": [
+              "FR"
+            ],
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Destination Country",
+            "type": "string"
+          },
+          "destination_location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Destination Location"
+          },
+          "dimensions": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dimensions"
+          },
+          "freight_cost": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Freight Cost"
+          },
+          "goods_value": {
+            "examples": [
+              13500.0
+            ],
+            "maximum": 1000000000000,
+            "minimum": 0.01,
+            "title": "Goods Value",
+            "type": "number"
+          },
+          "incoterm": {
+            "anyOf": [
+              {
+                "maxLength": 10,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Incoterm"
+          },
+          "insurance_cost": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Insurance Cost"
+          },
+          "known_hs_code": {
+            "anyOf": [
+              {
+                "maxLength": 10,
+                "minLength": 6,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "examples": [
+              "960100"
+            ],
+            "title": "Known Hs Code"
+          },
+          "manufacturer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Manufacturer"
+          },
+          "material": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Material"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "origin_country": {
+            "examples": [
+              "CN"
+            ],
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Origin Country",
+            "type": "string"
+          },
+          "origin_location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Origin Location"
+          },
+          "product": {
+            "examples": [
+              "750ml insulated stainless steel drinking bottle"
+            ],
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Product",
+            "type": "string"
+          },
+          "quantity": {
+            "examples": [
+              5000
+            ],
+            "maximum": 1000000000,
+            "minimum": 1,
+            "title": "Quantity",
+            "type": "integer"
+          },
+          "shipping_mode": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Shipping Mode"
+          },
+          "weight_kg": {
+            "anyOf": [
+              {
+                "maximum": 1000000000,
+                "minimum": 0.0001,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Weight Kg"
+          }
+        },
+        "required": [
+          "product",
+          "origin_country",
+          "destination_country",
+          "quantity",
+          "goods_value",
+          "currency"
+        ],
+        "title": "AssessImportInput",
+        "type": "object"
+      }
+    },
+    "required": [
+      "assessment_type",
+      "parameters"
+    ],
+    "type": "object"
+  },
+  "factrail_get_receipt": {
+    "additionalProperties": false,
+    "properties": {
+      "receipt_id": {
+        "description": "A FACTRAIL evidence observation ID.",
+        "pattern": "^fr_[0-9a-f]{64}$",
+        "type": "string"
+      }
+    },
+    "required": [
+      "receipt_id"
+    ],
+    "type": "object"
+  },
+  "factrail_verify": {
+    "additionalProperties": false,
+    "properties": {
+      "fields": {
+        "description": "Optional company fields to resolve; omit for the default set.",
+        "items": {
+          "enum": [
+            "cessation_date",
+            "creation_date",
+            "diffusion_status",
+            "head_office",
+            "legal_form",
+            "legal_name",
+            "naf_code",
+            "siren",
+            "siret",
+            "status",
+            "trade_name"
+          ],
+          "type": "string"
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "identifier": {
+        "description": "A 9-digit SIREN or 14-digit SIRET.",
+        "pattern": "^([0-9]{9}|[0-9]{14})$",
+        "type": "string"
+      },
+      "subject_type": {
+        "description": "Currently only French companies are supported.",
+        "enum": [
+          "company_fr"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "subject_type",
+      "identifier"
+    ],
+    "type": "object"
+  }
+}

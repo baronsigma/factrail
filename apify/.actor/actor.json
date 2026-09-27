@@ -1,0 +1,16 @@
+{
+  "actorSpecification": 1,
+  "name": "factrail-evidence-for-ai-agents",
+  "title": "FACTRAIL — Evidence for AI Agents",
+  "description": "Verify supported real-world facts and perform evidence-backed assessments with provenance, freshness, conflict handling, and reusable receipts.",
+  "version": "0.1",
+  "buildTag": "latest",
+  "defaultMemoryMbytes": 256,
+  "minMemoryMbytes": 256,
+  "maxMemoryMbytes": 512,
+  "usesStandbyMode": false,
+  "dockerfile": "./Dockerfile",
+  "readme": "./README.md",
+  "input": "./input_schema.json",
+  "storages": {"dataset": "./dataset_schema.json"}
+}

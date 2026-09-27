@@ -1,0 +1,35 @@
+{
+  "actorSpecification": 1,
+  "fields": {
+    "type": "object",
+    "properties": {
+      "action": {"type": "string", "enum": ["verify", "assess_import"]},
+      "result": {
+        "type": "object",
+        "description": "Unmodified FACTRAIL EvidenceEnvelope 1.1.",
+        "properties": {
+          "schema_version": {"type": "string", "const": "1.1"},
+          "status": {"type": "string", "enum": ["supported", "contradicted", "insufficient_evidence", "stale", "conflicting_sources"]},
+          "subject": {"type": "object"},
+          "facts": {"type": "array"},
+          "evidence": {"type": "array"},
+          "conflicts": {"type": "array"},
+          "coverage": {"type": "object"},
+          "freshness": {"type": "object"},
+          "receipt_id": {"type": "string", "pattern": "^fr_[0-9a-f]{64}$"},
+          "state_fingerprint": {"type": "string", "pattern": "^fs_[0-9a-f]{64}$"},
+          "generated_at": {"type": "string"}
+        },
+        "required": ["schema_version", "status", "subject", "facts", "evidence", "conflicts", "coverage", "freshness", "receipt_id", "state_fingerprint", "generated_at"]
+      }
+    },
+    "required": ["action", "result"]
+  },
+  "views": {
+    "overview": {
+      "title": "Evidence results",
+      "transformation": {"fields": ["action", "result"]},
+      "display": {"component": "table"}
+    }
+  }
+}

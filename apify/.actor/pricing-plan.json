@@ -1,0 +1,22 @@
+{
+  "purpose": "Operator blueprint; Apify pricing is activated in Console, not from actor.json",
+  "model": "PAY_PER_EVENT",
+  "pass_platform_usage_to_user": false,
+  "disable_synthetic_events": ["apify-actor-start", "apify-default-dataset-item"],
+  "primary_event": "factrail-verify",
+  "events": [
+    {
+      "name": "factrail-verify",
+      "description": "Successful evidence-backed FACTRAIL verification.",
+      "price_usd": 0.005,
+      "one_time_per_run": true
+    },
+    {
+      "name": "factrail-assess-import",
+      "description": "Successful evidence-backed FACTRAIL import assessment.",
+      "price_usd": 0.03,
+      "one_time_per_run": true
+    }
+  ],
+  "receipt_retrieval_event": null
+}

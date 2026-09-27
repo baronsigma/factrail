@@ -134,6 +134,8 @@ The offline suite uses mocks and fixtures. Live tests use the project's `--live`
 
 For operators: [deployment checklist](docs/deployment-checklist.md). Release history: [changelog](CHANGELOG.md).
 
+An isolated [Apify Actor wrapper](apify/README.md) is prepared as a distribution and payment channel. It calls this canonical MCP service and does not change the FACTRAIL 2.1.1 backend or the direct MCP endpoint.
+
 ## License
 
 The code and documentation in this repository are licensed under [Apache License 2.0](LICENSE). Source data remains subject to its publishers' terms, including the INSEE and BODACC open-data licenses.

@@ -1,0 +1,18 @@
+{
+  "title": "FACTRAIL — Evidence for AI Agents",
+  "short_description": "Verify supported real-world facts and perform evidence-backed assessments with provenance, freshness, conflict handling, and reusable receipts.",
+  "category_candidates_for_console": ["AI", "Business"],
+  "keywords": [
+    "AI agents",
+    "MCP",
+    "evidence verification",
+    "French company verification",
+    "import assessment",
+    "provenance",
+    "customs"
+  ],
+  "canonical_mcp": "https://mcp.factrail.online/mcp",
+  "source_repository": "https://github.com/baronsigma/factrail",
+  "scope": "French company verification, structured import assessment, evidence receipt retrieval",
+  "excluded_from_store_claims": ["generic fact checking", "sanctions", "beneficial ownership", "web search", "analyze_company"]
+}

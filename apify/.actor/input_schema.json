@@ -1,0 +1,23 @@
+{
+  "title": "FACTRAIL evidence request",
+  "description": "Choose one supported FACTRAIL action. The nested input is checked against the canonical MCP tool schema before any request or paid event.",
+  "type": "object",
+  "schemaVersion": 1,
+  "properties": {
+    "action": {
+      "title": "Action",
+      "type": "string",
+      "description": "Verify a French company, assess an import, or retrieve an evidence receipt.",
+      "editor": "select",
+      "enum": ["verify", "assess_import", "get_receipt"]
+    },
+    "input": {
+      "title": "FACTRAIL tool input",
+      "type": "object",
+      "description": "Use the documented input for the selected action. Extra or incomplete fields are rejected without an event charge.",
+      "editor": "json"
+    }
+  },
+  "required": ["action", "input"],
+  "additionalProperties": false
+}
