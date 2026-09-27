@@ -59,9 +59,13 @@ The Actor returns `{ "action": "…", "result": <canonical EvidenceEnvelope> }`.
 
 ## Pricing plan
 
-The intended Pay Per Event prices are **$0.005** for one `factrail-verify` event on a supported, sufficiently covered verification and **$0.03** for one `factrail-assess-import` event on a sufficiently evidenced assessment. Receipt retrieval is free. Invalid, unsupported, stale, conflicting, insufficient, or degraded results produce no FACTRAIL custom event. A partial import result caused by a missing authoritative tariff source is free. One run performs one action and emits at most one custom event.
+The Actor uses Pay Per Event with two custom events:
 
-The operator must configure these events in Apify Console, disable both synthetic start and default-dataset-item events, choose **Pay Per Event** without passing platform usage to users, keep **Limited permissions**, and leave Standby disabled. Prices in the repository are a blueprint until accepted in Console. Apify may still incur platform costs for runs that have no FACTRAIL event.
+- **$0.005** for a successful, sufficiently covered company verification (`factrail-verify`).
+- **$0.03** for a sufficiently evidenced import assessment (`factrail-assess-import`).
+- **Free** receipt retrieval (`get_receipt`).
+
+Invalid, unsupported, stale, conflicting, insufficient, or degraded results do not trigger a FACTRAIL event. A partial import result caused by unavailable authoritative tariff data is free. One run performs one action and can emit at most one FACTRAIL event. The Actor's Pay per event + usage option is disabled; check Apify's Pricing tab for the charges that apply to your account and run.
 
 ## Architecture and privacy
 
