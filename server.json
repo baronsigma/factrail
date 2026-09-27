@@ -1,0 +1,459 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.baronsigma/factrail",
+  "title": "Factrail",
+  "description": "Evidence infrastructure for AI agents: verification, import assessment, and durable receipts.",
+  "version": "2.1.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "description": "Production MCP server with company verification, import assessment, and company analysis",
+      "url": "https://mcp.factrail.online/mcp"
+    }
+  ],
+  "tools": [
+    {
+      "name": "factrail_verify",
+      "description": "Structured verification through Evidence Core; currently company_fr by SIREN or SIRET. Returns EvidenceEnvelope v1.1 with provenance, coverage, freshness, conflicts, receipt ID and state fingerprint.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "subject_type": {
+            "type": "string",
+            "enum": [
+              "company_fr"
+            ]
+          },
+          "identifier": {
+            "type": "string",
+            "pattern": "^([0-9]{9}|[0-9]{14})$"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "subject_type",
+          "identifier"
+        ]
+      }
+    },
+    {
+      "name": "factrail_assess",
+      "description": "Assess an import scenario using the existing Trade engine and return an EvidenceEnvelope v1.1.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "assessment_type": {
+            "type": "string",
+            "enum": [
+              "import"
+            ]
+          },
+          "parameters": {
+            "description": "Required + optional inputs for assess_import.",
+            "properties": {
+              "product": {
+                "examples": [
+                  "750ml insulated stainless steel drinking bottle"
+                ],
+                "maxLength": 500,
+                "minLength": 3,
+                "title": "Product",
+                "type": "string"
+              },
+              "origin_country": {
+                "examples": [
+                  "CN"
+                ],
+                "maxLength": 2,
+                "minLength": 2,
+                "title": "Origin Country",
+                "type": "string"
+              },
+              "destination_country": {
+                "examples": [
+                  "FR"
+                ],
+                "maxLength": 2,
+                "minLength": 2,
+                "title": "Destination Country",
+                "type": "string"
+              },
+              "quantity": {
+                "examples": [
+                  5000
+                ],
+                "maximum": 1000000000,
+                "minimum": 1,
+                "title": "Quantity",
+                "type": "integer"
+              },
+              "goods_value": {
+                "examples": [
+                  13500.0
+                ],
+                "maximum": 1000000000000,
+                "minimum": 0.01,
+                "title": "Goods Value",
+                "type": "number"
+              },
+              "currency": {
+                "examples": [
+                  "EUR"
+                ],
+                "maxLength": 3,
+                "minLength": 3,
+                "title": "Currency",
+                "type": "string"
+              },
+              "known_hs_code": {
+                "anyOf": [
+                  {
+                    "maxLength": 10,
+                    "minLength": 6,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "examples": [
+                  "960100"
+                ],
+                "title": "Known Hs Code"
+              },
+              "material": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Material"
+              },
+              "weight_kg": {
+                "anyOf": [
+                  {
+                    "maximum": 1000000000,
+                    "minimum": 0.0001,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Weight Kg"
+              },
+              "dimensions": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Dimensions"
+              },
+              "manufacturer": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Manufacturer"
+              },
+              "model": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Model"
+              },
+              "incoterm": {
+                "anyOf": [
+                  {
+                    "maxLength": 10,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Incoterm"
+              },
+              "shipping_mode": {
+                "anyOf": [
+                  {
+                    "maxLength": 50,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Shipping Mode"
+              },
+              "origin_location": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Origin Location"
+              },
+              "destination_location": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Destination Location"
+              },
+              "freight_cost": {
+                "anyOf": [
+                  {
+                    "minimum": 0.0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Freight Cost"
+              },
+              "insurance_cost": {
+                "anyOf": [
+                  {
+                    "minimum": 0.0,
+                    "type": "number"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Insurance Cost"
+              }
+            },
+            "required": [
+              "product",
+              "origin_country",
+              "destination_country",
+              "quantity",
+              "goods_value",
+              "currency"
+            ],
+            "title": "AssessImportInput",
+            "type": "object"
+          }
+        },
+        "required": [
+          "assessment_type",
+          "parameters"
+        ]
+      }
+    },
+    {
+      "name": "factrail_get_receipt",
+      "description": "Retrieve a persisted EvidenceEnvelope by receipt ID.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "receipt_id": {
+            "type": "string",
+            "pattern": "^fr_[0-9a-f]{64}$"
+          }
+        },
+        "required": [
+          "receipt_id"
+        ]
+      }
+    },
+    {
+      "name": "verify_french_company",
+      "description": "Verify a French company by SIREN (9-digit) or SIRET (14-digit). Returns structured verified data from INSEE Sirene with BODACC company-event intelligence (legal notices, proceedings, filings).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "description": "A 9-digit SIREN or 14-digit SIRET."
+          }
+        },
+        "required": [
+          "identifier"
+        ]
+      },
+      "annotations": {
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      }
+    },
+    {
+      "name": "assess_import",
+      "description": "Assess an import into the EU from any origin country. Returns structured classification, customs duty, import VAT, compliance requirements, landed cost, missing-information questions, risk profile, and source-backed evidence. NOT a customs filing tool - pre-purchase decision support only.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "product": {
+            "type": "string",
+            "description": "Short product description"
+          },
+          "origin_country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 origin country code (e.g. 'CN')"
+          },
+          "destination_country": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 EU destination country code (e.g. 'FR')"
+          },
+          "quantity": {
+            "type": "integer",
+            "description": "Number of units",
+            "minimum": 1
+          },
+          "goods_value": {
+            "type": "number",
+            "description": "Total goods value in the given currency",
+            "minimum": 0.01
+          },
+          "currency": {
+            "type": "string",
+            "description": "ISO 4217 currency code (e.g. 'EUR')"
+          },
+          "known_hs_code": {
+            "type": "string",
+            "description": "Optional known HS code (6-10 digits)"
+          },
+          "material": {
+            "type": "string",
+            "description": "Optional primary material"
+          },
+          "weight_kg": {
+            "type": "number",
+            "description": "Optional gross weight per unit in kg"
+          },
+          "dimensions": {
+            "type": "string",
+            "description": "Optional product dimensions"
+          },
+          "manufacturer": {
+            "type": "string",
+            "description": "Optional manufacturer name"
+          },
+          "model": {
+            "type": "string",
+            "description": "Optional model identifier"
+          },
+          "incoterm": {
+            "type": "string",
+            "description": "Optional Incoterm (e.g. 'FCA', 'CIF', 'DDP')",
+            "enum": [
+              "EXW",
+              "FCA",
+              "CPT",
+              "CIP",
+              "DAP",
+              "DPU",
+              "DDP",
+              "FAS",
+              "FOB",
+              "CFR",
+              "CIF"
+            ]
+          },
+          "shipping_mode": {
+            "type": "string",
+            "description": "Optional shipping mode (e.g. 'sea', 'air', 'road')"
+          },
+          "freight_cost": {
+            "type": "number",
+            "description": "Optional total freight cost in the given currency",
+            "minimum": 0
+          },
+          "insurance_cost": {
+            "type": "number",
+            "description": "Optional total insurance cost",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "product",
+          "origin_country",
+          "destination_country",
+          "quantity",
+          "goods_value",
+          "currency"
+        ]
+      },
+      "annotations": {
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      }
+    },
+    {
+      "name": "analyze_company",
+      "description": "Analyze a company's financial health, credit risk, and market position. Returns structured credit rating, financial ratios, risk factors, and market analysis. V0.1 returns placeholder data for demonstration; live data integration is future work.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "siren": {
+            "type": "string",
+            "description": "Optional SIREN (9-digit) SIRET (14-digit) identifier",
+            "pattern": "^[0-9]{9,14}$"
+          },
+          "company_name": {
+            "type": "string",
+            "description": "Company legal name for lookup"
+          },
+          "country_code": {
+            "type": "string",
+            "description": "ISO 3166-1 alpha-2 country code"
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "read_only_hint": true,
+        "destructive_hint": false,
+        "idempotent_hint": true,
+        "open_world_hint": true
+      }
+    }
+  ]
+}

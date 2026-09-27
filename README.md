@@ -1,20 +1,14 @@
 # FACTRAIL
 
-**Source-linked facts for AI agents.**
+**Evidence infrastructure for AI agents.**
 
-FACTRAIL is a public, read-only MCP service that turns external data into structured answers an agent can inspect and cite. It is designed to grow across domains: each rail has a specific question, explicit sources, provenance, and clear treatment of missing or unavailable evidence.
+Agents routinely need facts that can change: a company's registration status, a tariff rate, or the information needed to assess an import. FACTRAIL gives them structured answers with source references, coverage, freshness, and receipts they can retrieve later.
 
-> This repository documents the public service and contains the website source. The production MCP implementation is hosted separately.
+FACTRAIL is a Python [Model Context Protocol](https://modelcontextprotocol.io/) server. This repository contains the v2.1 source, tests, and the public site. The hosted service may run a different release; check its live `tools/list` response before relying on a tool being deployed.
 
-## Connect
+## Connect to the hosted service
 
-Use the remote **Streamable HTTP** MCP endpoint:
-
-```text
-https://mcp.factrail.online/mcp
-```
-
-For clients using an `mcpServers` configuration:
+MCP endpoint: **`https://mcp.factrail.online/mcp`** (Streamable HTTP)
 
 ```json
 {
@@ -26,52 +20,98 @@ For clients using an `mcpServers` configuration:
 }
 ```
 
-Client configuration formats vary. The server's `tools/list` response is the authoritative list of currently available capabilities.
+Client configuration varies. The endpoint's `tools/list` response is the source of truth for deployed capabilities. [Website](https://factrail.online/) · [Health endpoint](https://mcp.factrail.online/healthz)
 
-## Available now
+## What the v2.1 source provides
 
-| Rail | Tool | What it does |
-| --- | --- | --- |
-| Company facts | `verify_french_company` | Verifies a French company or establishment by nine-digit SIREN or 14-digit SIRET. Returns normalized INSEE Sirene registry facts and published BODACC events with source context. |
-| Trade | `assess_import` | Produces an indicative pre-import assessment for goods entering an EU destination from any origin. France is the best-supported destination in this early version. It organizes classification, duty, VAT, compliance, landed-cost and risk considerations, asks for missing information, and marks unavailable source checks explicitly. |
+| Tool | Purpose |
+| --- | --- |
+| `factrail_verify` | Verify structured French company fields by SIREN or SIRET and return an EvidenceEnvelope. |
+| `factrail_assess` | Assess a structured EU import scenario with the existing Trade engine and return an EvidenceEnvelope. |
+| `factrail_get_receipt` | Retrieve a previously stored EvidenceEnvelope by receipt ID. |
+| `verify_french_company` | Existing INSEE Sirene and BODACC company response. |
+| `assess_import` | Existing classification, duty, VAT, compliance, and landed-cost response. |
+| `analyze_company` | Legacy experimental interface. Its financial and credit figures are placeholders, **not verified analysis**. |
 
-**Try asking an MCP-capable agent:**
+`factrail_verify` establishes evidence-backed facts. `factrail_assess` evaluates a domain scenario. `factrail_get_receipt` retrieves the recorded observation. The legacy tools keep their original response shapes.
 
-- “Verify French company SIREN 356000000 and summarize its published corporate events.”
-- “Assess importing 100 insulated stainless-steel bottles from China into France for a goods value of EUR 2,000. What information is still needed?”
+### Verify a French company
 
-`assess_import` is a decision aid, not a binding tariff ruling or a customs filing service. In the current version, some trade source adapters are unavailable; a modeled or indicative result must not be mistaken for a live official lookup. Review classification, rates, regulatory requirements and costs against applicable official sources before acting.
+```json
+{
+  "subject_type": "company_fr",
+  "identifier": "784671695",
+  "fields": ["status", "legal_name", "head_office"]
+}
+```
 
-## The FACTRAIL approach
+Call `factrail_verify` with that input. The company resolver uses the existing INSEE Sirene and BODACC pipeline. Historical notices remain historical; they do not silently change the current INSEE status.
 
-An agent should be able to distinguish a sourced observation from an estimate, an inference, or an unavailable check. Rails aim to provide:
+### Assess an import
 
-1. **A specific answer** in a machine-readable shape.
-2. **Evidence and provenance** identifying the source where available.
-3. **Time context** such as publication or retrieval timestamps where available.
-4. **Explicit uncertainty** for missing inputs, unavailable sources and non-binding assessments.
+```json
+{
+  "assessment_type": "import",
+  "parameters": {
+    "product": "750ml insulated stainless steel bottle",
+    "origin_country": "CN",
+    "destination_country": "FR",
+    "quantity": 5,
+    "goods_value": 1000,
+    "currency": "EUR",
+    "known_hs_code": "961700"
+  }
+}
+```
 
-This is the common product contract as additional domains are added. Coverage, source availability and fields differ by tool; inspect each tool's description and output for its exact limits. Published notices are historical events and do not, by themselves, establish a company's current financial or legal condition.
+Call `factrail_assess` with that input. `parameters` accepts the same fields as [`assess_import`](factrail/trade/models.py). The assessment identifies caller inputs, source data, inferred classifications, and derived calculations separately. A curated tariff fallback is marked as such; it is not a live authoritative tariff lookup. Classification and cost estimates are indicative and require review before a customs filing.
 
-## Growing the rails
+## Evidence Contract
 
-Company facts and trade are the current rails. Further domains may include corporate events, financials, procurement, supplier due diligence and other real-world data. These are directions for development, **not currently advertised MCP tools**. New capabilities will be added to the table above when they are live.
+An EvidenceEnvelope v1.1 has `schema_version`, `status`, `subject`, `facts`, `evidence`, `conflicts`, `coverage`, `freshness`, `receipt_id`, `state_fingerprint`, and `generated_at`.
 
-## Links
+- **Facts** cite evidence record IDs. Derived facts also carry the calculation rule, inputs, assumptions, and engine in metadata.
+- **Evidence** identifies the source, authority class, retrieval time, source status, and URL when one exists. Caller input and internal calculations are labeled as such.
+- **Coverage** lists requested, resolved, and unresolved fields. Missing information stays unknown.
+- **Freshness** records observation times and stale status. A historical publication is not treated as a current state assertion.
+- **Conflicts** preserve competing values and their sources. Field-specific authority policies can record a deterministic resolution; absent a decisive policy, the result reports conflicting sources.
 
-- Website: https://factrail.online/
-- MCP endpoint: https://mcp.factrail.online/mcp
-- Health: https://mcp.factrail.online/healthz
-- Official MCP Registry: https://registry.modelcontextprotocol.io/?q=io.github.baronsigma%2Ffactrail
-- Glama: https://glama.ai/mcp/connectors/io.github.baronsigma/factrail
-- Smithery: https://smithery.ai/servers/baronsigma/factrail
+A `receipt_id` (`fr_…`) identifies one evidence observation. Source retrieval times participate in its SHA-256 hash. A `state_fingerprint` (`fs_…`) identifies the substantive state across observations; it excludes retrieval time, receipt ID, evidence IDs, and ordering. Both are deterministic. Receipts live in SQLite and can be fetched with `factrail_get_receipt`. [Hash and migration details](docs/evidence-core.md).
 
-Registry identity: `io.github.baronsigma/factrail`.
+## Run locally
 
-## Privacy
+Requires Python 3.11 or newer.
 
-FACTRAIL's usage telemetry is designed to count actual MCP tool calls without retaining SIREN/SIRET inputs, raw request payloads, returned company data, raw IP addresses, authorization headers or cookies.
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -e '.[dev]'
+cp .env.example .env
+# Set INSEE_API_KEY in .env for live French company lookups.
+python3 -m factrail.mcp_http_server
+```
 
-## Website source
+The HTTP server defaults to port 8765. Use `FACTRAIL_HOST` and `FACTRAIL_PORT` to change its bind address and port. The MCP endpoint is `POST http://localhost:8765/mcp`; health is at `/healthz`. For stdio clients, run `python3 -m factrail.mcp_server`.
 
-The static public site lives in [`site/`](site/). Its evergreen overview and current-tool table can be maintained independently: add a tool to the table only after it is deployed and observed in the MCP `tools/list` response.
+The INSEE key is available through the [INSEE API portal](https://portail-api.insee.fr/). The default SQLite path is `/tmp/factrail_cache.db`; set `FACTRAIL_CACHE_PATH` to a persistent location for durable receipts. The server also has per-client rate limiting and stale cache fallback for company lookups.
+
+## Sources and scope
+
+- **French companies:** INSEE Sirene registry data and BODACC legal notices.
+- **EU imports:** the existing Trade engine, curated tariff references, VAT references, and explicit unavailable-source markers. France is the best-supported destination. Some live tariff and market-access adapters are not yet integrated.
+
+FACTRAIL does not perform general web search or natural-language claim verification. The Evidence Core currently has one verification resolver (`company_fr`) and one assessment type (`import`).
+
+## Development
+
+```bash
+python3 -m pytest -q
+python3 -m compileall -q factrail tests
+python3 -m factrail.evidence.demand --days 7
+```
+
+The offline suite uses mocks and fixtures. Live tests use the project's `--live` convention and require external access. The private demand report aggregates capability gaps without storing identifiers, company names, product descriptions, prompts, or full request payloads. [Evidence Core design](docs/evidence-core.md).
+
+## License
+
+The code and documentation in this repository are licensed under [Apache License 2.0](LICENSE). Source data remains subject to its publishers' terms, including the INSEE and BODACC open-data licenses.
