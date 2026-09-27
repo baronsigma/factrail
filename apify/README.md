@@ -57,9 +57,9 @@ FACTRAIL does not verify arbitrary natural-language claims or provide general se
 
 The Actor returns `{ "action": "…", "result": <canonical EvidenceEnvelope> }`. It keeps all facts, evidence, conflicts, freshness, coverage, receipt and fingerprint fields. Paid results appear in the default dataset; free receipt and partial results appear as `OUTPUT` in the run's default key-value store. Errors also appear in `OUTPUT` with a structured code and no custom event charge.
 
-## Pricing plan
+## Live pricing
 
-The Actor uses Pay Per Event with two custom events:
+This public Actor uses Pay Per Event with these active custom event prices:
 
 - **$0.005** for a successful, sufficiently covered company verification (`factrail-verify`).
 - **$0.03** for a sufficiently evidenced import assessment (`factrail-assess-import`).
