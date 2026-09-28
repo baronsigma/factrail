@@ -35,7 +35,7 @@ async def handle_list_tools(
                 name="verify_french_company",
                 description="Verify a French company by SIREN or SIRET. "
                 "Returns structured verified data from INSEE Sirene with "
-                "BODACC company-event intelligence.",
+                "BODACC company-event intelligence. Legacy response shape; prefer factrail_verify for the EvidenceEnvelope.",
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -55,7 +55,7 @@ async def handle_list_tools(
 async def handle_call_tool(
     context: Any, params: types.CallToolRequestParams
 ) -> types.CallToolResult:
-    if params.name in ("factrail_verify", "factrail_assess", "factrail_get_receipt", "assess_import", "analyze_company"):
+    if params.name in ("factrail_verify", "factrail_assess", "factrail_get_receipt", "factrail_capabilities", "assess_import", "analyze_company"):
         from .mcp_http_server import handle_call_tool as http_handle_call_tool
         return await http_handle_call_tool(context, params)
     if params.name != "verify_french_company":
@@ -102,7 +102,7 @@ async def handle_call_tool(
 
 app = Server(
     "factrail",
-    version="2.1.1",
+    version="2.4.0",
     on_list_tools=handle_list_tools,
     on_call_tool=handle_call_tool,
 )
@@ -115,7 +115,7 @@ async def run() -> None:
             write_stream,
             InitializationOptions(
                 server_name="factrail",
-                server_version="2.1.1",
+                server_version="2.4.0",
                 capabilities=app.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},

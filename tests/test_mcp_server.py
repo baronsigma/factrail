@@ -20,7 +20,7 @@ class TestMcpServer:
     @pytest.mark.asyncio
     async def test_list_tools(self, ctx):
         result = await handle_list_tools(ctx, None)
-        assert len(result.tools) == 6
+        assert len(result.tools) == 7
         assert result.tools[0].name == "verify_french_company"
 
     @respx.mock

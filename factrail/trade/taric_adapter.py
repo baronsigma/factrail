@@ -1,19 +1,8 @@
-"""
-TARIC lookup adapter — browser-based live path + curated reference fallback.
+"""Legacy curated tariff references and an unavailable live TARIC adapter.
 
-V0.1: Two-tier approach:
-  1. Live: Use browser to submit the TARIC consultation form and extract duty/measure data
-  2. Fallback: Curated MFN duty reference data with provenance
-
-The EU TARIC consultation page (https://ec.europa.eu/taxation_customs/dds2/taric/taric_consultation.jsp)
-is a JavaServer Page form. The form submits to itself with the goods code and geographic area.
-Results are rendered in HTML tables.
-
-IMPORTANT: This adapter requires a running browser session. It is used optionally
-via the check_live_taric flag. When the browser is unavailable, the curated reference
-data is used with clear provenance.
-
-The adapter returns structured evidence with status VERIFIED when live data is retrieved.
+Official Commission TARIC data is handled by :mod:`official_taric_store` after a
+local snapshot is ingested. This module does not scrape the human consultation UI.
+The legacy local heading table remains curated provisional fallback data.
 """
 
 from __future__ import annotations
@@ -356,22 +345,15 @@ class TaricAdapter:
         if entry is None:
             return None
 
-        if live_used:
-            status = ProvenanceStatus.VERIFIED
-            note = f"MFN duty retrieved live from EU TARIC consultation for heading {heading}."
-            authority = "European Commission — EU TARIC (live consultation)"
-            source = f"EU TARIC live lookup — heading {heading}"
-            url = "https://ec.europa.eu/taxation_customs/dds2/taric/taric_consultation.jsp"
-            retrieved_at = datetime.now(timezone.utc)
-            effective_date = "2026-09"  # Current TARIC update
-        else:
-            status = ProvenanceStatus.VERIFIED
-            note = entry["note"]
-            authority = "European Commission — EU TARIC / Market Access Database"
-            source = f"EU MFN tariff reference (heading {heading})"
-            url = entry["taric_url"]
-            retrieved_at = datetime.now(timezone.utc)
-            effective_date = entry["effective_date"]
+        # `live_used` historically only selected wording; the rate still came
+        # from CURATED_MFN_DUTY. Never label that value as a live observation.
+        status = ProvenanceStatus.ESTIMATED
+        note = entry["note"] + " Curated heading-level reference; not a live tariff observation."
+        authority = "FACTRAIL curated reference data"
+        source = f"FACTRAIL curated EU MFN tariff reference (heading {heading})"
+        url = entry["taric_url"]
+        retrieved_at = datetime.now(timezone.utc)
+        effective_date = entry["effective_date"]
 
         return Evidence(
             value=f"{entry['mfn_duty_pct']}%",
@@ -387,49 +369,15 @@ class TaricAdapter:
         )
 
     def _live_lookup(self, heading: str, full_code: str, destination: str) -> Optional[float]:
-        """Attempt live lookup via browser form submission.
-
-        This method is called only when a browser is available.
-        Returns the MFN duty rate if found, None otherwise.
-        """
-        # The TARIC consultation form is a JSP that submits to itself.
-        # The key parameters are: Taric (goods code), country (geographic area).
-        # We need to use the browser tool to submit the form.
-
-        # This is a placeholder — actual browser integration happens in the
-        # service layer where the browser tool is available.
-        # For V0, we document the approach but the live path requires
-        # integration with the browser_exec tool from the service layer.
-
-        logger.info("TARIC live lookup requested")
-
-        # Not implemented directly here — browser access requires the
-        # browser_exec tool which is not available inside this module.
-        # The service layer can call the browser and pass results back.
+        """Live browser lookup is disabled; official evidence uses local snapshots."""
         raise NotImplementedError(
-            "Live TARIC lookup requires browser integration at the service layer. "
-            "Use the curated reference data or set check_live_taric=True and provide "
-            "browser results via the evidence ledger."
+            "The TARIC human consultation UI is not scraped. Ingest an official "
+            "Commission XLSX snapshot and query OfficialTaricStore instead."
         )
 
 
 def lookup_taric_duty_via_browser(hs_code: str, origin_country: str, destination_country: str) -> Evidence:
-    """Look up TARIC duty data using a browser.
-
-    This function is called from the service layer when check_live_taric=True
-    and a browser is available. It returns an Evidence record with the results.
-
-    The browser is expected to:
-      1. Navigate to https://ec.europa.eu/taxation_customs/dds2/taric/taric_consultation.jsp?Lang=en
-      2. Enter the TARIC code in the goods code field
-      3. Select the origin/destination geographic area
-      4. Submit the form
-      5. Extract the duty rate and measures from the results table
-
-    Returns:
-        Evidence with status VERIFIED if data was retrieved,
-        or UNAVAILABLE if the lookup failed.
-    """
+    """Return a structured unavailable marker; no rendered-UI scraping occurs."""
     from ..classification import validate_hs_code
 
     if not validate_hs_code(hs_code):
@@ -445,24 +393,16 @@ def lookup_taric_duty_via_browser(hs_code: str, origin_country: str, destination
             note=f"Invalid HS/TARIC code format: {hs_code!r}",
         )
 
-    # The actual browser interaction happens in the service layer
-    # This function returns a structured result that the service layer
-    # populates via browser_exec calls.
-
-    # For V0, this is a documented interface — the implementation
-    # requires browser tool integration which happens in service.py
     return Evidence(
         value=None,
         status=ProvenanceStatus.UNAVAILABLE,
         authority="European Commission — EU TARIC",
-        source="EU TARIC (live browser lookup not yet integrated in V0)",
+        source="EU_TARIC live consultation lookup disabled",
         url="https://ec.europa.eu/taxation_customs/dds2/taric/taric_consultation.jsp?Lang=en",
         retrieved_at=datetime.now(timezone.utc),
         supports=["duty", "tariff"],
         confidence=0.0,
-        note="V0 browser-based TARIC lookup is available as an architecture path. "
-             "To use: call browser_exec to navigate the TARIC consultation form, "
-             "submit the goods code and geographic area, and extract the duty/measure "
-             "table. The service layer can then populate this Evidence record with "
-             "the retrieved data.",
+        source_outcome="lookup_disabled",
+        source_detail="lookup_disabled",
+        note="Live TARIC consultation UI lookup is intentionally disabled. Install an official Commission snapshot and query the local indexed store.",
     )

@@ -1,4 +1,4 @@
-"""Offline release and public-boundary checks for FACTRAIL 2.1.1."""
+"""Offline release and public-boundary checks for FACTRAIL 2.2.0."""
 from __future__ import annotations
 
 import asyncio
@@ -29,8 +29,8 @@ async def test_release_and_contract_versions_and_manifest():
     manifest = json.loads((root / "server.json").read_text())
     from factrail.mcp_http_server import app as http_app
     from factrail.mcp_server import app as stdio_app
-    assert package["project"]["version"] == manifest["version"] == http_app.version == stdio_app.version == "2.1.1"
-    assert sample_envelope().schema_version == "1.1"
+    assert package["project"]["version"] == manifest["version"] == http_app.version == stdio_app.version == "2.4.0"
+    assert sample_envelope().schema_version == "1.2"
     runtime = {tool.name: tool for tool in (await handle_list_tools(None, None)).tools}
     for tool in manifest["tools"]:
         assert tool["input_schema"] == runtime[tool["name"]].input_schema
@@ -67,7 +67,7 @@ async def test_receipt_unknown_valid_id_is_not_found(tmp_path, monkeypatch):
 async def test_strategic_schemas_and_validation(tmp_path, monkeypatch):
     monkeypatch.setenv("FACTRAIL_CACHE_PATH", str(tmp_path / "demand.db"))
     tools = {t.name: t for t in (await handle_list_tools(None, None)).tools}
-    assert len(tools) == 6
+    assert len(tools) == 7
     for name in ("factrail_verify", "factrail_assess", "factrail_get_receipt"):
         assert "state_fingerprint" in tools[name].output_schema["properties"]
         assert tools[name].input_schema["additionalProperties"] is False

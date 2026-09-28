@@ -57,6 +57,7 @@ class AnalysisStatus(str, Enum):
     OK = "ok"
     PARTIAL = "partial"
     REVIEW_REQUIRED = "review_required"
+    INSUFFICIENT_EVIDENCE = "insufficient_evidence"
 
 
 # ---------------------------------------------------------------------------
@@ -94,7 +95,7 @@ class CreditRating(str, Enum):
 
 class FinancialHealth(BaseModel):
     """Financial health scoring."""
-    score: float = Field(ge=0.0, le=100.0, description="0-100 health score")
+    score: Optional[float] = Field(None, ge=0.0, le=100.0, description="Unavailable until a financial data source is integrated")
     rating: Optional[CreditRating] = None
     debt_to_equity: Optional[float] = Field(None, description="Debt-to-equity ratio")
     current_ratio: Optional[float] = Field(None, description="Current assets / current liabilities")
@@ -111,15 +112,15 @@ class FinancialHealth(BaseModel):
 
 class CreditRiskFactor(BaseModel):
     factor: str
-    score: float = Field(ge=-1.0, le=1.0)
+    score: Optional[float] = Field(None, ge=-1.0, le=1.0)
     impact: str
     evidence_url: Optional[str] = None
 
 
 class CreditRiskAssessment(BaseModel):
     """Credit risk analysis."""
-    score: float = Field(ge=0.0, le=100.0, description="Risk score: 0=lowest risk, 100=highest risk")
-    rating: CreditRating
+    score: Optional[float] = Field(None, ge=0.0, le=100.0, description="Unavailable until a credit source is integrated")
+    rating: Optional[CreditRating] = None
     factors: list[CreditRiskFactor] = Field(default_factory=list)
     pd_5y: Optional[float] = Field(None, description="5-year probability of default %")
     lgd: Optional[float] = Field(None, description="Loss given default %")
@@ -136,9 +137,9 @@ class MarketPosition(BaseModel):
     market_share: Optional[float] = Field(None, description="Market share % in primary market")
     sector_rank: Optional[int] = Field(None, description="Rank in sector (1=leader)")
     competitive_advantages: list[str] = Field(default_factory=list)
-    market_trends: str = ""
-    growth_potential: str = ""  # low/medium/high
-    disruption_risk: str = ""  # low/medium/high
+    market_trends: Optional[str] = None
+    growth_potential: Optional[str] = None
+    disruption_risk: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -146,11 +147,11 @@ class MarketPosition(BaseModel):
 # ---------------------------------------------------------------------------
 
 class BusinessRisk(BaseModel):
-    concentration: str  # low/medium/high
-    supply_chain: str  # low/medium/high
-    regulatory: str  # low/medium/high
-    financial: str  # low/medium/high
-    reputation: str  # low/medium/high
+    concentration: Optional[str] = None
+    supply_chain: Optional[str] = None
+    regulatory: Optional[str] = None
+    financial: Optional[str] = None
+    reputation: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +166,8 @@ class ExecutiveProfile(BaseModel):
 
 
 class ExecutiveTeam(BaseModel):
-    size: int
-    avg_experience: float
+    size: Optional[int] = None
+    avg_experience: Optional[float] = None
     turnover_rate: Optional[float] = None
     profiles: list[ExecutiveProfile] = Field(default_factory=list)
 
@@ -201,7 +202,7 @@ class AnalyzeCompanyOutput(BaseModel):
     analysis_id: str = Field(default_factory=lambda: str(uuid4()).replace("-", ""))
     status: AnalysisStatus
     requested_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    company_name: str
+    company_name: Optional[str] = None
     siren: Optional[str] = None
 
     financial_health: FinancialHealth
@@ -211,8 +212,9 @@ class AnalyzeCompanyOutput(BaseModel):
     executive_team: ExecutiveTeam
 
     sources: list[dict] = Field(default_factory=list)
-    confidence: float = Field(ge=0.0, le=1.0, description="Overall analysis confidence")
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Unavailable; no analysis sources are integrated")
     notes: list[str] = Field(default_factory=list)
+    unavailable: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -224,97 +226,23 @@ def analyze_company(
     *,
     evidence: Optional[list] = None,
 ) -> AnalyzeCompanyOutput:
-    """Analyze a company's financial health, credit risk, and market position.
-
-    V0.1 returns curated data structures for known French companies.
-    Live data integration is stubbed for V0.
-    """
+    """Compatibility response; company financial/risk sources are not integrated."""
     ev = evidence if evidence is not None else []
-    now = datetime.now(timezone.utc)
-
-    # Resolver: determine company identity
-    company_name = input.company_name or "Unknown Company"
-    siren = input.siren
-
-    # V0: Return placeholder analysis with available reference data
-    # Real implementation would query live databases
-
-    # Basic financial health (placeholder values)
-    financial_health = FinancialHealth(
-        score=50.0,  # Medium health
-        rating=CreditRating.BB,
-        debt_to_equity=None,
-        current_ratio=None,
-        quick_ratio=None,
-        interest_coverage=None,
-        profitability_margin=None,
-        revenue_growth_yoy=None,
-        assets_turnover=None,
-    )
-
-    # Credit risk assessment (stub)
-    credit_risk = CreditRiskAssessment(
-        score=45.0,
-        rating=CreditRating.BB_MINUS,
-        factors=[],
-        pd_5y=None,
-        lgd=None,
-        ead=None,
-        recommendation="Monitor credit exposure; consider credit insurance for large exposure",
-    )
-
-    # Market position (stub)
-    market_position = MarketPosition(
-        market_share=None,
-        sector_rank=None,
-        competitive_advantages=[],
-        market_trends="Unknown - data not integrated in V0",
-        growth_potential="medium",
-        disruption_risk="medium",
-    )
-
-    # Business risk profile (stub)
-    business_risk = BusinessRisk(
-        concentration="medium",
-        supply_chain="medium",
-        regulatory="low",
-        financial="medium",
-        reputation="low",
-    )
-
-    # Executive team (stub)
-    executive_team = ExecutiveTeam(
-        size=1,
-        avg_experience=0.0,
-        turnover_rate=None,
-        profiles=[],
-    )
-
-    # Determine confidence
-    has_siren = siren is not None
-    has_name = company_name is not None
-    confidence = 0.3 if not has_siren else 0.5
-
-    # Status
-    if has_siren or has_name:
-        status = AnalysisStatus.PARTIAL
-        notes = ["V0 returns placeholder data; live integration required"]
-    else:
-        status = AnalysisStatus.REVIEW_REQUIRED
-        notes = ["Provide SIREN or company_name for analysis"]
-
     return AnalyzeCompanyOutput(
-        siren=siren,
-        company_name=company_name if has_name else "Unknown",
-        financial_health=financial_health,
-        credit_risk=credit_risk,
-        market_position=market_position,
-        business_risk=business_risk,
-        executive_team=executive_team,
+        siren=input.siren,
+        company_name=input.company_name,
+        financial_health=FinancialHealth(),
+        credit_risk=CreditRiskAssessment(),
+        market_position=MarketPosition(),
+        business_risk=BusinessRisk(),
+        executive_team=ExecutiveTeam(profiles=[]),
         sources=ev,
-        confidence=confidence,
-        notes=notes,
-        status=status,
+        confidence=None,
+        notes=["Compatibility-only response. Company financial, credit, market, risk, and executive data sources are not integrated."],
+        unavailable={name: {"reason": "source_not_integrated"} for name in (
+            "financial_health", "credit_score", "credit_rating", "market_position",
+            "business_risk", "executive_team")},
+        status=AnalysisStatus.INSUFFICIENT_EVIDENCE,
     )
 
 

@@ -7,11 +7,12 @@ Website: https://factrail.online/
 Source and documentation: https://github.com/baronsigma/factrail
 Health: https://mcp.factrail.online/healthz
 
-## Strategic tools in the v2.1.1 source
+## Strategic tools in the v2.4.0 source
 
-- `factrail_verify`: call before relying on a mutable fact about a supported subject. Current `subject_type`: `company_fr`. Supply a 9-digit SIREN or 14-digit SIRET as `identifier`; optional `fields` selects company fields such as `status`, `legal_name`, and `head_office`. Returns an EvidenceEnvelope.
-- `factrail_assess`: call for a structured domain scenario. Current `assessment_type`: `import`. `parameters` has the same required fields as `assess_import`: `product`, `origin_country`, `destination_country`, `quantity`, `goods_value`, and `currency`. Returns an EvidenceEnvelope.
-- `factrail_get_receipt`: call with a previously returned `receipt_id` to retrieve the stored EvidenceEnvelope. Malformed IDs return `invalid_input`; unknown valid IDs return `not_found`.
+- `factrail_verify`: verify a real-world fact about a supported subject. Current `subject_type`: `company_fr`. Supply a 9-digit SIREN or 14-digit SIRET as `identifier`; optional `fields` selects company fields such as `status`, `legal_name`, and `head_office`. Returns an EvidenceEnvelope.
+- `factrail_assess`: evaluate a structured real-world situation. Current `assessment_type`: `import`. `parameters` has the same required fields as `assess_import`: `product`, `origin_country`, `destination_country`, `quantity`, `goods_value`, and `currency`. Returns a stored EvidenceEnvelope with a receipt.
+- `factrail_get_receipt`: retrieve stored evidence by `receipt_id`; tampering returns an integrity error.
+- `factrail_capabilities`: discover supported operations, required and optional inputs, fields, sources, versions, and limitations.
 
 The hosted deployment can lag the source release. Inspect its live `tools/list` response before selecting a tool.
 
@@ -19,11 +20,11 @@ The hosted deployment can lag the source release. Inspect its live `tools/list` 
 
 - `verify_french_company`: existing INSEE Sirene and BODACC company response.
 - `assess_import`: existing indicative EU import response with classification, customs, VAT, compliance, and landed cost. It is not a binding customs ruling.
-- `analyze_company`: experimental legacy interface. Financial and credit values are placeholders, not verified analysis.
+- `analyze_company`: deprecated compatibility-only interface. Financial and credit sources are unavailable; those values are null.
 
 ## Evidence semantics
 
-EvidenceEnvelope contract version is `1.1`, separate from the FACTRAIL package version. Facts cite evidence record IDs. `coverage` lists resolved and unresolved fields; unknown remains unknown. `freshness` records when supporting data was retrieved. `conflicts` preserves competing source assertions. Historical BODACC notices do not determine current registration status. Derived Trade calculations are labeled separately from external source facts.
+EvidenceEnvelope contract version is `1.2`, separate from the FACTRAIL package version. Facts cite evidence record IDs and declare support (`authoritative`, `supported`, `derived_supported`, `derived_provisional`, `curated`, or `caller_input`). Derived facts identify method/version and provisional inputs; caller input is not externally verified. FACTRAIL does not fabricate unavailable facts. Schema: `schemas/evidence-envelope-1.2.schema.json`. `coverage` lists resolved and unresolved fields; unknown remains unknown. `freshness` records when supporting data was retrieved. `conflicts` preserves competing source assertions. Historical BODACC notices do not determine current registration status. Derived Trade calculations are labeled separately from external source facts.
 
 `receipt_id` identifies the evidence observation. `state_fingerprint` identifies the substantive factual state across observations. Both are deterministic; the receipt can be retrieved later.
 
@@ -31,5 +32,9 @@ EvidenceEnvelope contract version is `1.1`, separate from the FACTRAIL package v
 
 Verification: French companies and establishments by SIREN/SIRET.
 Assessment: structured imports into EU destinations, with France best supported. Curated tariff fallback and unavailable source checks are explicit.
+
+## Official EU TARIC snapshot foundation
+
+FACTRAIL can ingest official Commission TARIC Excel snapshots from a directory, ZIP, or workbook using `python3 -m factrail.trade.taric_sync ingest PATH --reference-date YYYY-MM-DD`. Status is available with `python3 -m factrail.trade.taric_sync status`. Ingestion validates table scope, hashes inputs, builds an indexed SQLite snapshot, and atomically activates it. Failed refreshes retain and mark last-good data stale. Official TARIC snapshots are primary customs data when installed; Access2Markets is secondary; curated FACTRAIL data is provisional fallback. No snapshot is bundled, automatic fetch is currently unavailable, and daily delta application is deferred. TARIC is not binding legislation; legal references are preserved. See the Commission [TARIC page](https://taxation-customs.ec.europa.eu/online-services/online-services-and-databases-customs/eu-customs-tariff-taric_en) and [extraction guide](https://circabc.europa.eu/sd/a/3d892b27-176f-4b8c-bbf5-4e0ee63f7e5a/Explanation%20for%20the%20Taric%20database%20extractions.pdf).
 
 FACTRAIL does not support arbitrary natural-language claims, general web search, generic URL fetching, sanctions verification, beneficial ownership, watches, or other unlisted domains. Use `tools/list` for the deployed surface.

@@ -34,7 +34,7 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # ---------------------------------------------------------------------------
 # Project .env auto-loading for CLI use
@@ -84,12 +84,7 @@ def _load_project_env() -> None:
 _load_project_env()
 
 
-_CLIENT_FAMILIES: list[tuple[str, str]] = [
-    ("goose", "goose"),
-    ("claude", "claude"),
-    ("cursor", "cursor"),
-    ("inspector", "inspector"),
-]
+_CLIENT_FAMILIES = {"goose": "goose", "claude": "claude", "cursor": "cursor", "inspector": "inspector"}
 
 
 def _get_secret() -> str:
@@ -103,11 +98,8 @@ def _detect_client_family(user_agent: str) -> str:
     Returns one of: goose, claude, cursor, inspector, unknown.
     Never stores the raw User-Agent.
     """
-    ua_lower = user_agent.lower()
-    for family, needle in _CLIENT_FAMILIES:
-        if needle in ua_lower:
-            return family
-    return "unknown"
+    token = user_agent.strip().lower().split("/", 1)[0]
+    return _CLIENT_FAMILIES.get(token, "unknown")
 
 
 def _derive_daily_client_hash(
@@ -199,6 +191,12 @@ class TelemetryStore:
                 )
                 """
             )
+            columns = {r[1] for r in conn.execute("PRAGMA table_info(telemetry)")}
+            for name, decl in (("origin_class", "TEXT NOT NULL DEFAULT 'unknown'"),
+                               ("server_version", "TEXT"), ("request_id", "TEXT"),
+                               ("mcp_client_name", "TEXT"), ("mcp_client_version", "TEXT")):
+                if name not in columns:
+                    conn.execute(f"ALTER TABLE telemetry ADD COLUMN {name} {decl}")
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON telemetry(timestamp)"
             )
@@ -225,6 +223,11 @@ class TelemetryStore:
         upstream_status: Optional[str] = None,
         client_family: str = "unknown",
         daily_client_hash: str = "unknown",
+        origin_class: str = "unknown",
+        server_version: Optional[str] = None,
+        request_id: Optional[str] = None,
+        mcp_client_name: Optional[str] = None,
+        mcp_client_version: Optional[str] = None,
     ) -> None:
         """Record a telemetry event. Never raises — fire-and-forget.
 
@@ -240,8 +243,8 @@ class TelemetryStore:
                 INSERT INTO telemetry
                     (timestamp, tool_name, success, error_type, latency_ms,
                      cache_status, upstream_status, client_family,
-                     daily_client_hash, utc_date)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     daily_client_hash, utc_date, origin_class, server_version, request_id, mcp_client_name, mcp_client_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     now,
@@ -254,6 +257,9 @@ class TelemetryStore:
                     client_family,
                     daily_client_hash,
                     utc_date,
+                    origin_class if origin_class in ("external", "internal_test", "live_test", "manual", "inspector", "unknown") else "unknown",
+                    server_version, request_id,
+                    mcp_client_name, mcp_client_version,
                 ),
             )
             conn.commit()
@@ -345,6 +351,10 @@ class TelemetryStore:
             ).fetchall():
                 calls_by_client[r["client_family"]] = r["cnt"]
 
+            calls_by_origin = {}
+            for r in conn.execute("SELECT origin_class, COUNT(*) AS cnt FROM telemetry WHERE timestamp >= ? GROUP BY origin_class ORDER BY cnt DESC", (cutoff,)).fetchall():
+                calls_by_origin[r["origin_class"] or "unknown"] = r["cnt"]
+
             # Errors by type
             errors_by_type = {}
             for r in conn.execute(
@@ -362,6 +372,7 @@ class TelemetryStore:
                 "p95_latency_ms": round(p95, 2),
                 "calls_by_tool": calls_by_tool,
                 "calls_by_client_family": calls_by_client,
+                "calls_by_origin": calls_by_origin,
                 "errors_by_type": errors_by_type,
             }
         except Exception as exc:
@@ -425,6 +436,11 @@ def record_tool_call(
     upstream_status: Optional[str] = None,
     client_family: str = "unknown",
     daily_client_hash: str = "unknown",
+    origin_class: str = "unknown",
+    server_version: Optional[str] = None,
+    request_id: Optional[str] = None,
+    mcp_client_name: Optional[str] = None,
+    mcp_client_version: Optional[str] = None,
 ) -> None:
     """Fire-and-forget telemetry record. Never raises."""
     if not is_telemetry_enabled():
@@ -439,6 +455,8 @@ def record_tool_call(
             upstream_status=upstream_status,
             client_family=client_family,
             daily_client_hash=daily_client_hash,
+            origin_class=origin_class, server_version=server_version, request_id=request_id,
+            mcp_client_name=mcp_client_name, mcp_client_version=mcp_client_version,
         )
     except Exception:
         pass  # Telemetry must never break MCP
@@ -451,15 +469,33 @@ def build_client_context(request: Any) -> dict:
     Never includes raw IP or raw User-Agent.
     """
     try:
-        client_ip = _get_client_ip(request)
-        user_agent = request.headers.get("user-agent", "")
-        client_family = _detect_client_family(user_agent)
+        client_name = request.headers.get("x-mcp-client-name", "").strip().lower()
+        client_family = {"claude desktop": "claude", "claude code": "claude", "claude": "claude",
+                         "chatgpt": "chatgpt", "cursor": "cursor", "visual studio code": "vscode",
+                         "vscode": "vscode", "codex": "codex", "mcp inspector": "mcp_inspector"}.get(client_name, "unknown")
+        if client_family == "mcp_inspector":
+            origin_class = "inspector"
+        elif request.headers.get("x-factrail-test-origin") in ("internal_test", "live_test", "manual"):
+            origin_class = request.headers.get("x-factrail-test-origin")
+        elif client_family != "unknown":
+            origin_class = "external"
+        else:
+            origin_class = "unknown"
         utc_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         secret = _get_secret()
+        # Use client name/version supplied by MCP initialize when available. Stateless deployments
+        # may also send these normalized headers; never store raw header values.
+        if origin_class == "unknown" and client_family != "unknown":
+            origin_class = "external"
+        # Daily hash is a one-way rotating digest; raw IP is not persisted.
+        client_ip = _get_client_ip(request)
         daily_hash = _derive_daily_client_hash(client_ip, client_family, utc_date, secret)
         return {
             "client_family": client_family,
             "daily_client_hash": daily_hash,
+            "origin_class": origin_class,
+            "server_version": os.environ.get("FACTRAIL_VERSION", "2.4.0"),
+            "request_id": getattr(getattr(request, "state", None), "request_id", None),
         }
     except Exception:
         return {

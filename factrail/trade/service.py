@@ -52,9 +52,14 @@ from .models import (
     RiskProfile,
     Tax,
 )
-from .taric_store import get_default_store
+from .access2markets_store import get_default_store as get_default_access2markets_store
+from .official_taric_store import OfficialTaricStore
 
 logger = getLogger(__name__)
+
+# Deprecated compatibility seam for existing monkeypatches/callers. The object
+# returned is the Access2Markets secondary cache, never official TARIC data.
+get_default_store = get_default_access2markets_store
 
 
 def assess_import(
@@ -128,6 +133,43 @@ def assess_import(
     )
     add_classification_evidence(classification, hs6 or classification.hs_code, ev)
 
+    # Official TARIC evidence is local snapshot data only. Acquisition is kept
+    # out of the assessment request path; absent snapshots are represented as
+    # unavailable rather than replaced with Access2Markets data.
+    official_code = classification.taric_code or classification.hs_code
+    if not official_code:
+        taric_result = {"source": "EU_TARIC", "source_outcome": "not_required",
+                        "source_detail": "lookup_blocked_missing_classification", "measures": []}
+    else:
+        taric_result = OfficialTaricStore().query(
+            official_code, input.origin_country,
+            input.assessment_date.isoformat() if input.assessment_date else None,
+        )
+    snapshot = taric_result.get("snapshot") or {}
+    try:
+        taric_retrieved_at = datetime.fromisoformat(snapshot.get("retrieved_at", "").replace("Z", "+00:00")) if snapshot.get("retrieved_at") else now
+    except ValueError:
+        taric_retrieved_at = now
+    ev.append(Evidence(
+        value={"source": "EU_TARIC", "publisher": "European Commission DG TAXUD",
+               "source_outcome": taric_result.get("source_outcome"),
+               "source_detail": taric_result.get("source_detail"),
+               "classification": taric_result.get("classification"),
+               "measures": taric_result.get("measures", []),
+               "snapshot": {key: snapshot.get(key) for key in ("reference_date", "retrieved_at", "sha256", "ingestion_version", "partial", "missing_tables") if key in snapshot}},
+        status=ProvenanceStatus.UNAVAILABLE if taric_result.get("source_outcome") == "source_unavailable" else ProvenanceStatus.VERIFIED,
+        authority="European Commission DG TAXUD — official TARIC snapshot data",
+        source="EU_TARIC official snapshot query",
+        url="https://taxation-customs.ec.europa.eu/online-services/online-services-and-databases-customs/eu-customs-tariff-taric_en",
+        retrieved_at=taric_retrieved_at,
+        effective_date=snapshot.get("reference_date") or taric_result.get("assessment_date"),
+        supports=["official_taric_snapshot", "official_customs_measures"],
+        confidence=1.0 if snapshot and not snapshot.get("partial") else 0.0,
+        source_outcome=taric_result.get("source_outcome"),
+        source_detail=taric_result.get("source_detail"),
+        note="Official TARIC data from an installed, locally indexed Commission snapshot. This record preserves candidate applicability and precision metadata; it does not claim a final duty amount.",
+    ))
+
     # ------------------------------------------------------------------
     # 3. Tariff / measures engine
     # ------------------------------------------------------------------
@@ -140,7 +182,7 @@ def assess_import(
         freight_cost=input.freight_cost,
         insurance_cost=input.insurance_cost,
         evidence_ledger=ev,
-        taric_store=get_default_store(),
+        access2markets_store=get_default_store(),
     )
 
     # ------------------------------------------------------------------

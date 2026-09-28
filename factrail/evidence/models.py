@@ -22,6 +22,16 @@ class CoverageLevel(str, Enum):
     INSUFFICIENT = "insufficient"
 
 
+class SupportLevel(str, Enum):
+    """How strongly a fact is supported, independent of numeric confidence."""
+    AUTHORITATIVE = "authoritative"
+    SUPPORTED = "supported"
+    DERIVED_SUPPORTED = "derived_supported"
+    DERIVED_PROVISIONAL = "derived_provisional"
+    CURATED = "curated"
+    CALLER_INPUT = "caller_input"
+
+
 class Subject(BaseModel):
     type: str
     name: str | None = None
@@ -50,6 +60,7 @@ class Fact(BaseModel):
     jurisdiction: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     provenance_type: str = "sourced"
+    support_level: SupportLevel = SupportLevel.SUPPORTED
 
 
 class ConflictSide(BaseModel):
@@ -71,6 +82,10 @@ class Coverage(BaseModel):
     fields_unresolved: list[str]
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @property
+    def unresolved_field_reasons(self) -> dict[str, str]:
+        return self.metadata.get("unresolved_field_reasons", {})
+
 
 class Freshness(BaseModel):
     generated_at: datetime
@@ -81,7 +96,7 @@ class Freshness(BaseModel):
 
 
 class EvidenceEnvelope(BaseModel):
-    schema_version: str = "1.1"
+    schema_version: str = "1.2"
     status: VerificationStatus
     subject: Subject
     facts: list[Fact]

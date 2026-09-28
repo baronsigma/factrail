@@ -1,11 +1,10 @@
-"""
-Customs duty engine for FACTRAIL Trade — TARIC-authoritative, curated-fallback.
+"""Customs estimate engine with explicit secondary and curated source labels.
 
 V0.2: Replaces the curated-only approach with a two-tier engine:
 
-  1. Primary: EU TARIC / Access2Markets authoritative data via TaricStore.
-  2. Fallback: curated reference data (EU_MFN_DUTY, EU_FTA_MAP) when the
-     authoritative source is unavailable for a given HS code / origin combo.
+  1. Access2Markets is secondary evidence only; it is not an official TARIC
+     snapshot and cannot be labelled authoritative customs evidence.
+  2. Curated reference data remains an explicit fallback.
 
 Fallback data is explicitly marked as "fallback", never "verified", with
 lower confidence and a warning.
@@ -33,8 +32,9 @@ from .models import (
     PreferenceStatus,
     ProvenanceStatus,
 )
-from .taric_store import (
-    TaricStore,
+from .access2markets_store import (
+    Access2MarketsStore,
+    TaricParserError,
     TaricUnavailable,
     find_mfn_duty,
     find_preference,
@@ -44,6 +44,16 @@ from .taric_store import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _taric_retrieved_at(result: dict[str, Any]) -> datetime:
+    raw = result.get("retrieved_at")
+    if isinstance(raw, str):
+        try:
+            return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc)
 
 # ---------------------------------------------------------------------------
 # Curated fallback data (secondary, explicitly marked)
@@ -263,13 +273,14 @@ def build_customs_block(
     insurance_cost: Optional[float],
     evidence_ledger: list[Evidence],
     *,
-    taric_store: Optional[TaricStore] = None,
+    access2markets_store: Optional[Access2MarketsStore] = None,
+    taric_store: Optional[Access2MarketsStore] = None,
 ) -> Customs:
     """Build the Customs block for an import assessment.
 
     Two-tier approach:
-      1. Try authoritative TARIC store (Access2Markets / DG TAXUD).
-      2. Fall back to curated reference data if authoritative data unavailable.
+      1. Use Access2Markets only as secondary evidence when available.
+      2. Fall back to curated reference data when secondary evidence is absent.
 
     Return a Customs block with:
       - preference_status
@@ -344,51 +355,115 @@ def build_customs_block(
         customs_value += insurance_cost
 
     # ------------------------------------------------------------------
-    # 2. Authoritative TARIC lookup
+    # 2. Access2Markets secondary lookup
     # ------------------------------------------------------------------
-    authoritative = False
+    secondary_available = False
     source_used = "unknown"
     taric_measures: list[dict] = []
     fallback_used = False
+    tariff_source_outcome = "success"
+    tariff_source_detail = "response_complete"
+    tariff_failure_detail = None
+    result: dict[str, Any] = {"measures": [], "source_detail": "upstream_error"}
 
     try:
-        store = taric_store or get_default_store()
-        result = store.get_measures(hs_code, origin_country, destination_country)
+        if not hs_code:
+            tariff_source_outcome = "not_required"
+            tariff_source_detail = "lookup_blocked_missing_classification"
+            result = {"measures": [], "_source": "not_required"}
+        else:
+            # ``taric_store`` is a deprecated compatibility keyword. The object
+            # is an Access2Markets cache, never an official TARIC store.
+            store = access2markets_store or taric_store or get_default_store()
+            result = store.get_measures(hs_code, origin_country, destination_country)
         taric_measures = result.get("measures", [])
         source_used = result.get("_source", "unknown")
+        if result.get("_warning"):
+            # A stale cache can support the calculation while still exposing
+            # that the attempted refresh failed.
+            tariff_source_outcome = "source_error"
+            tariff_source_detail = result.get("source_detail", "stale_cache_after_refresh_failure")
+        else:
+            tariff_source_detail = result.get("source_detail", "response_complete")
         logger.info(
-            "taric_authoritative_lookup_ok",
+            "access2markets_secondary_lookup_ok",
             extra={"source": source_used, "measures": len(taric_measures)},
         )
         if taric_measures:
-            authoritative = True
-        else:
-            # Fetch succeeded but returned no parsed measures — treat as unavailable
+            secondary_available = True
+        elif hs_code:
+            # An empty parse is not evidence that no applicable measure exists.
             logger.warning(
-                "taric_authoritative_empty_measures",
+                "access2markets_secondary_empty_measures",
             )
-            authoritative = False
+            secondary_available = False
             fallback_used = True
+            tariff_source_outcome = "partial"
+            if tariff_source_detail == "response_complete":
+                tariff_source_detail = "parser_no_usable_measures"
+    except TaricParserError:
+        secondary_available = False
+        fallback_used = True
+        tariff_source_outcome = "source_error"
+        tariff_source_detail = "parser_error"
+        tariff_failure_detail = "parser_error"
     except TaricUnavailable as exc:
         logger.warning(
-            "taric_authoritative_unavailable",
+            "access2markets_secondary_unavailable",
         )
-        authoritative = False
+        secondary_available = False
         fallback_used = True
+        tariff_source_outcome = "source_error"
+        tariff_source_detail = getattr(exc, "source_detail", "upstream_error")
+        tariff_failure_detail = str(exc)
     except Exception as exc:
         logger.error(
             "taric_lookup_error",
         )
-        authoritative = False
+        secondary_available = False
         fallback_used = True
+        tariff_source_outcome = "source_error"
+        tariff_source_detail = "upstream_error"
+        tariff_failure_detail = type(exc).__name__
+
+    if tariff_source_outcome in {"source_error", "partial", "not_required"}:
+        attempt = Evidence(
+            value=tariff_source_outcome, status=ProvenanceStatus.UNAVAILABLE if tariff_source_outcome == "source_error" else ProvenanceStatus.ESTIMATED,
+            authority="European Commission — Access2Markets (secondary; not official TARIC)", source="EU Access2Markets secondary source attempt",
+            url="https://trade.ec.europa.eu/access-to-markets", retrieved_at=datetime.now(timezone.utc),
+            supports=["source_attempt"], confidence=0.0 if tariff_source_outcome == "source_error" else 0.5,
+            source_outcome=tariff_source_outcome,
+            source_detail=tariff_source_detail,
+            note=("Lookup was blocked because classification is unavailable." if tariff_source_detail == "lookup_blocked_missing_classification"
+                  else "Access2Markets request failed; details are intentionally omitted from telemetry." if tariff_source_outcome == "source_error"
+                  else "Access2Markets response requires review; parsed measure coverage is incomplete." if tariff_source_detail == "response_partial"
+                  else "Access2Markets explicitly reported no applicable measures." if tariff_source_detail == "response_no_applicable_measures"
+                  else "Access2Markets request completed but the parser found no usable measures."),
+        )
+        customs.evidence.append(attempt)
+        ev.append(attempt)
 
     # ------------------------------------------------------------------
-    # 3. Extract duty from authoritative measures
+    # 3. Extract secondary duty information for the legacy estimate
     # ------------------------------------------------------------------
     mfn_measure = find_mfn_duty(taric_measures)
     pref_measure = find_preference(taric_measures)
 
-    if authoritative and mfn_measure:
+    if secondary_available and not mfn_measure:
+        tariff_source_outcome = "partial"
+        fallback_used = True
+        attempt = Evidence(
+            value="partial", status=ProvenanceStatus.ESTIMATED,
+            authority="European Commission — Access2Markets (secondary; not official TARIC)", source="EU Access2Markets secondary source attempt",
+            url="https://trade.ec.europa.eu/access-to-markets", retrieved_at=datetime.now(timezone.utc),
+            supports=["source_attempt"], confidence=0.5, source_outcome="partial",
+            source_detail="response_partial" if taric_measures else "parser_no_usable_measures" if tariff_source_detail not in ("response_no_applicable_measures", "response_partial") else tariff_source_detail,
+            note="Access2Markets request completed but returned no applicable third-country duty measure; this is not an official TARIC determination.",
+        )
+        customs.evidence.append(attempt)
+        ev.append(attempt)
+
+    if secondary_available and mfn_measure:
         base_rate = parse_tariff_rate(mfn_measure.get("tariff"))
         customs.base_duty_rate_pct = base_rate
         customs.applied_rate_type = "third_country_mfn"
@@ -402,21 +477,21 @@ def build_customs_block(
             pref_rate = parse_tariff_rate(pref_measure.get("tariff"))
             customs.preferential_rate_pct = pref_rate
 
-        # Build evidence for authoritative duty
+        # Build evidence for secondary tariff information
         ev_record = Evidence(
             value=f"{base_rate}%",
-            status=ProvenanceStatus.VERIFIED,
-            authority="European Commission — DG TAXUD TARIC database / Access2Markets",
+            status=ProvenanceStatus.ESTIMATED,
+            authority="European Commission — Access2Markets (secondary; not official TARIC)",
             source=f"EU Access2Markets results for {hs_code} ({origin_country} → {destination_country}) — third-country duty",
             url=f"https://trade.ec.europa.eu/access-to-markets/en/results?product={hs_code}&origin={origin_country}&destination={destination_country}",
-            retrieved_at=datetime.now(timezone.utc),
+            retrieved_at=_taric_retrieved_at(result),
             effective_date=result.get("version_date", "current"),
             supports=["duty", "tariff", "customs_value"],
             confidence=0.95,
             note=(
-                f"Third-country (MFN) duty retrieved from EU Access2Markets "
+                f"Third-country duty displayed by Access2Markets as secondary information "
                 f"(version {result.get('version', 'unknown')}, {result.get('version_date', 'unknown')}). "
-                f"Source: DG TAXUD TARIC database. "
+                f"Access2Markets is a secondary portal and is not an official TARIC snapshot. "
                 f"Regulation: {mfn_measure.get('eu_law_reference', 'see A2M page')}. "
                 f"Origin area: {mfn_measure.get('origin_area', 'ERGA OMNES')}."
             ),
@@ -427,15 +502,15 @@ def build_customs_block(
         # Evidence for the source page itself
         source_ev = Evidence(
             value="EU Access2Markets tariff results page",
-            status=ProvenanceStatus.VERIFIED,
-            authority="European Commission — Access2Markets (built on DG TAXUD TARIC)",
-            source="EU Access2Markets — official EU trade policy portal",
+            status=ProvenanceStatus.ESTIMATED,
+            authority="European Commission — Access2Markets (secondary portal)",
+            source="EU Access2Markets — secondary EU trade policy portal",
             url=f"https://trade.ec.europa.eu/access-to-markets/en/results?product={hs_code}&origin={origin_country}&destination={destination_country}",
-            retrieved_at=datetime.now(timezone.utc),
+            retrieved_at=_taric_retrieved_at(result),
             effective_date=result.get("version_date", "current"),
             supports=["duty", "tariff", "source"],
             confidence=0.9,
-            note=f"Access2Markets version {result.get('version', 'unknown')} ({result.get('version_date', 'unknown')}). EU tariffs sourced from DG TAXUD TARIC database (updated daily).",
+            note=f"Access2Markets version {result.get('version', 'unknown')} ({result.get('version_date', 'unknown')}). Access2Markets may display TARIC-linked information; this response is secondary evidence, not a TARIC snapshot.",
         )
         if source_ev not in customs.evidence:
             customs.evidence.append(source_ev)
@@ -490,9 +565,9 @@ def build_customs_block(
                 confidence=0.4,
                 note=(
                     f"MFN duty from curated reference data for heading {heading}. "
-                    f"THIS IS A FALLBACK — the authoritative TARIC lookup was unavailable "
+                    f"THIS IS A FALLBACK — no official TARIC snapshot was installed "
                     f"({fallback_used}). The rate has NOT been verified against the current "
-                    f"EU TARIC database. The actual rate may differ. "
+                    f"The official TARIC snapshot was unavailable, so this rate may differ. "
                     f"Verify against: {entry['taric_url']}"
                 ),
             )
@@ -501,14 +576,14 @@ def build_customs_block(
 
             customs.notes.append(
                 f"Customs duty rate ({base_rate}%) is from curated reference data — "
-                f"NOT verified against the current EU TARIC database. "
-                f"Authoritative data unavailable for this heading ({heading}). "
+                f"Not verified by an installed official TARIC snapshot. "
+                f"Official TARIC snapshot data unavailable for this heading ({heading}). "
                 f"Verify before import: {entry['taric_url']}"
             )
         else:
             customs.notes.append(
                 f"No MFN duty data available for heading {heading} — neither from "
-                f"authoritative TARIC nor from curated reference data."
+                f"official TARIC snapshot nor from curated reference data."
             )
 
         # Pref/FTA lookup from curated map
@@ -589,35 +664,8 @@ def build_customs_block(
     else:
         customs.notes.append("No duty rate available — cannot estimate duty.")
 
-    # ------------------------------------------------------------------
-    # 6. Compliance / sanctions note
-    # ------------------------------------------------------------------
-    # For China specifically, the A2M page warns about sanctions on some products.
-    # We note this generically.
-    if origin_country == "CN":
-        san_note = (
-            "EU sanctions exist on some products originating in China. "
-            "The DG TAXUD TARIC database integrates applicable sanctions. "
-            "Verify sanctions applicability for this specific product before import. "
-            "See: https://sanctionsmap.eu/ and https://ec.europa.eu/taxation_customs/dds2/taric/taric_consultation.jsp"
-        )
-        customs.notes.append(san_note)
-        san_ev = Evidence(
-            value="Sanctions check required",
-            status=ProvenanceStatus.INFERRED,
-            authority="European Union — Consolidated Sanctions List / DG TAXUD TARIC",
-            source="EU sanctions on some Chinese products — integrated in TARIC",
-            url="https://sanctionsmap.eu/",
-            retrieved_at=datetime.now(timezone.utc),
-            supports=["sanctions", "compliance"],
-            confidence=0.3,
-            note="Generic note — specific sanctions applicability depends on the product. Verify against TARIC for this HS code.",
-        )
-        customs.evidence.append(san_ev)
-        ev.append(san_ev)
-
     _attach_origin_rules_from_taric(
-        customs, taric_measures, origin_country, destination_country, ev
+        customs, taric_measures, origin_country, destination_country, ev, _taric_retrieved_at(result)
     )
 
     return customs
@@ -663,11 +711,11 @@ def _measure_evidence(
 
     return Evidence(
         value=f"{m.get('measure_type', 'Unknown')} — {m.get('tariff', 'N/A')}",
-        status=ProvenanceStatus.VERIFIED,
-        authority="European Commission — DG TAXUD TARIC database / Access2Markets",
+        status=ProvenanceStatus.ESTIMATED,
+        authority="European Commission — Access2Markets (secondary; not official TARIC)",
         source=f"EU Access2Markets measure: {m.get('measure_type', '')} ({m.get('origin_area', '')})",
         url=f"https://trade.ec.europa.eu/access-to-markets/en/results?product={hs_code}&origin={origin}&destination={destination}",
-        retrieved_at=datetime.now(timezone.utc),
+        retrieved_at=_taric_retrieved_at(result),
         effective_date=result.get("version_date", "current"),
         supports=["duty", "tariff", "measure", "compliance"],
         confidence=0.9 if m.get("review_required") else 0.95,
@@ -681,6 +729,7 @@ def _attach_origin_rules_from_taric(
     origin: str,
     destination: str,
     ev: list[Evidence],
+    retrieved_at: datetime | None = None,
 ) -> None:
     """Attach origin rules from TARIC measures when present."""
     # If we have a preference measure, attach origin rule
@@ -688,11 +737,11 @@ def _attach_origin_rules_from_taric(
     if pref:
         rule_ev = Evidence(
             value=f"Preferential rate: {pref.get('tariff', 'N/A')}",
-            status=ProvenanceStatus.VERIFIED,
-            authority="European Commission — DG TAXUD TARIC / DG TRADE",
+            status=ProvenanceStatus.ESTIMATED,
+            authority="European Commission — Access2Markets (secondary portal)",
             source=f"EU Access2Markets — preferential tariff for {origin} → {destination}",
             url=f"https://trade.ec.europa.eu/access-to-markets/en/results?product={pref.get('hs_code', '')}&origin={origin}&destination={destination}",
-            retrieved_at=datetime.now(timezone.utc),
+            retrieved_at=retrieved_at or datetime.now(timezone.utc),
             supports=["preferential", "origin", "rules_of_origin"],
             confidence=0.9,
             note=f"Preferential tariff available: {pref.get('tariff')}. Verify rules of origin for this product. EU law: {pref.get('eu_law_reference', '')}.",

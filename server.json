@@ -3,7 +3,7 @@
   "name": "io.github.baronsigma/factrail",
   "title": "Factrail",
   "description": "Evidence infrastructure for AI agents: structured verification, import assessment, and retrievable receipts.",
-  "version": "2.1.1",
+  "version": "2.4.0",
   "remotes": [
     {
       "type": "streamable-http",
@@ -306,6 +306,10 @@
                 "default": "sourced",
                 "title": "Provenance Type",
                 "type": "string"
+              },
+              "support_level": {
+                "$ref": "#/$defs/SupportLevel",
+                "default": "supported"
               }
             },
             "required": [
@@ -406,6 +410,19 @@
             "title": "Subject",
             "type": "object"
           },
+          "SupportLevel": {
+            "description": "How strongly a fact is supported, independent of numeric confidence.",
+            "enum": [
+              "authoritative",
+              "supported",
+              "derived_supported",
+              "derived_provisional",
+              "curated",
+              "caller_input"
+            ],
+            "title": "SupportLevel",
+            "type": "string"
+          },
           "VerificationStatus": {
             "enum": [
               "supported",
@@ -420,7 +437,7 @@
         },
         "properties": {
           "schema_version": {
-            "default": "1.1",
+            "default": "1.2",
             "title": "Schema Version",
             "type": "string"
           },
@@ -570,6 +587,20 @@
                 "minLength": 3,
                 "title": "Currency",
                 "type": "string"
+              },
+              "assessment_date": {
+                "anyOf": [
+                  {
+                    "format": "date",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Optional TARIC effective/simulation date; availability depends on the installed snapshot.",
+                "title": "Assessment Date"
               },
               "known_hs_code": {
                 "anyOf": [
@@ -994,6 +1025,10 @@
                 "default": "sourced",
                 "title": "Provenance Type",
                 "type": "string"
+              },
+              "support_level": {
+                "$ref": "#/$defs/SupportLevel",
+                "default": "supported"
               }
             },
             "required": [
@@ -1094,6 +1129,19 @@
             "title": "Subject",
             "type": "object"
           },
+          "SupportLevel": {
+            "description": "How strongly a fact is supported, independent of numeric confidence.",
+            "enum": [
+              "authoritative",
+              "supported",
+              "derived_supported",
+              "derived_provisional",
+              "curated",
+              "caller_input"
+            ],
+            "title": "SupportLevel",
+            "type": "string"
+          },
           "VerificationStatus": {
             "enum": [
               "supported",
@@ -1108,7 +1156,7 @@
         },
         "properties": {
           "schema_version": {
-            "default": "1.1",
+            "default": "1.2",
             "title": "Schema Version",
             "type": "string"
           },
@@ -1454,6 +1502,10 @@
                 "default": "sourced",
                 "title": "Provenance Type",
                 "type": "string"
+              },
+              "support_level": {
+                "$ref": "#/$defs/SupportLevel",
+                "default": "supported"
               }
             },
             "required": [
@@ -1554,6 +1606,19 @@
             "title": "Subject",
             "type": "object"
           },
+          "SupportLevel": {
+            "description": "How strongly a fact is supported, independent of numeric confidence.",
+            "enum": [
+              "authoritative",
+              "supported",
+              "derived_supported",
+              "derived_provisional",
+              "curated",
+              "caller_input"
+            ],
+            "title": "SupportLevel",
+            "type": "string"
+          },
           "VerificationStatus": {
             "enum": [
               "supported",
@@ -1568,7 +1633,7 @@
         },
         "properties": {
           "schema_version": {
-            "default": "1.1",
+            "default": "1.2",
             "title": "Schema Version",
             "type": "string"
           },
@@ -1768,7 +1833,7 @@
     },
     {
       "name": "analyze_company",
-      "description": "Legacy experimental company analysis. Financial and credit figures are placeholders, not verified risk assessments.",
+      "description": "Deprecated experimental compatibility-only tool. Financial and credit data sources are unavailable; returned fields are null. Prefer factrail_verify for supported company facts.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1778,7 +1843,7 @@
           },
           "company_name": {
             "type": "string",
-            "description": "Company legal name for lookup."
+            "description": "Optional caller-provided display name; it is echoed without verification."
           },
           "country_code": {
             "type": "string",
@@ -1792,6 +1857,44 @@
         "destructive_hint": false,
         "idempotent_hint": true,
         "open_world_hint": true
+      }
+    },
+    {
+      "name": "factrail_capabilities",
+      "description": "Discover registered verification and assessment capabilities, required inputs, fields, sources, and limitations.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "verify",
+              "assess"
+            ]
+          },
+          "capability": {
+            "type": "string",
+            "enum": [
+              "company_fr",
+              "import"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "output_schema": {
+        "type": "object",
+        "properties": {
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        },
+        "required": [
+          "capabilities"
+        ]
       }
     }
   ]

@@ -182,7 +182,7 @@ class TestHandleListTools:
     @pytest.mark.asyncio
     async def test_tool_annotations(self):
         result = await handle_list_tools(None, None)
-        assert len(result.tools) == 6
+        assert len(result.tools) == 7
         # Verify verify_french_company is present with correct annotations
         vfc = next(t for t in result.tools if t.name == "verify_french_company")
         assert vfc.annotations is not None
@@ -429,7 +429,7 @@ class TestMCPProtocolBehavior:
                 data = r.json()
                 assert "result" in data
                 assert "tools" in data["result"]
-                assert len(data["result"]["tools"]) == 6
+                assert len(data["result"]["tools"]) == 7
                 tool_names = {t["name"] for t in data["result"]["tools"]}
                 assert "verify_french_company" in tool_names
                 assert "assess_import" in tool_names

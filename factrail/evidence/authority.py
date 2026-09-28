@@ -16,6 +16,8 @@ class AuthorityClass(str, Enum):
     OFFICIAL_DERIVED_DATASET = "official_derived_dataset"
     COMMERCIAL = "commercial"
     SECONDARY = "secondary"
+    CURATED_REFERENCE = "curated_reference"
+    HEURISTIC_CLASSIFIER = "heuristic_classifier"
 
 
 class AuthorityRule(BaseModel):
@@ -43,6 +45,40 @@ class AuthorityDecision(BaseModel):
     selected: Fact | None
     conflict: Conflict | None
     status: VerificationStatus
+
+
+# Source semantics inspected in InseeAdapter.lookup_with_bodacc: INSEE/Sirene
+# is the current register; BODACC notices are official publications but may be
+# historical and are deliberately not used to overwrite current registry facts.
+COMPANY_FR_AUTHORITY_POLICIES = [
+    AuthorityRule(policy_id="company_fr.status.current_registry_over_publication", domain="company_fr",
+        field="status", jurisdiction="FR",
+        precedence=[AuthorityClass.PRIMARY_OFFICIAL_REGISTRY, AuthorityClass.OFFICIAL_PUBLICATION],
+        reason="INSEE/Sirene reports current administrative status; BODACC notices are historical publication evidence."),
+    AuthorityRule(policy_id="company_fr.legal_name.registry_over_publication", domain="company_fr",
+        field="legal_name", jurisdiction="FR",
+        precedence=[AuthorityClass.PRIMARY_OFFICIAL_REGISTRY, AuthorityClass.OFFICIAL_PUBLICATION],
+        reason="INSEE/Sirene is the current legal-entity register; BODACC is publication evidence and does not maintain the current registered name."),
+]
+
+# Customs-source policy. TARIC is an official Commission data product, not
+# binding legislation itself; measure records preserve legal references, while
+# the applicable legal act/Official Journal remains the ultimate legal source.
+TRADE_IMPORT_AUTHORITY_POLICIES = [
+    AuthorityRule(policy_id="trade_import.eu_customs_measure.taric_over_secondary_and_curated",
+        domain="trade_import", field="customs_measures", jurisdiction="EU",
+        precedence=[AuthorityClass.OFFICIAL_DERIVED_DATASET, AuthorityClass.SECONDARY, AuthorityClass.CURATED_REFERENCE],
+        reason="An installed official Commission TARIC snapshot is primary customs-measure data; Access2Markets is secondary; FACTRAIL reference rates are explicit curated fallback."),
+    AuthorityRule(policy_id="trade_import.eu_nomenclature.official_over_heuristic",
+        domain="trade_import", field="taric_code", jurisdiction="EU",
+        precedence=[AuthorityClass.OFFICIAL_DERIVED_DATASET, AuthorityClass.HEURISTIC_CLASSIFIER],
+        reason="Official TARIC/CN nomenclature and declarable-code status take precedence over rule-based classification candidates, which remain provisional."),
+]
+
+
+def authority_policy_registry() -> list[AuthorityRule]:
+    """Return a copy of the documented, field-scoped policies."""
+    return [rule.model_copy(deep=True) for rule in COMPANY_FR_AUTHORITY_POLICIES + TRADE_IMPORT_AUTHORITY_POLICIES]
 
 
 def resolve_assertions(facts: list[Fact], sources: list[EvidenceSource], *, domain: str,
@@ -78,5 +114,6 @@ def resolve_assertions(facts: list[Fact], sources: list[EvidenceSource], *, doma
                 conflict=Conflict(field=field, sides=sides, resolution_status="resolved",
                     resolution_reason=f"{rule.policy_id}: {rule.reason}"), status=VerificationStatus.SUPPORTED)
     return AuthorityDecision(selected=None,
-        conflict=Conflict(field=field, sides=sides, resolution_status="unresolved"),
+        conflict=Conflict(field=field, sides=sides, resolution_status="unresolved",
+            resolution_reason=(f"{rule.policy_id}: top-ranked evidence is tied or insufficiently authoritative" if rule else "No applicable authority policy; conflicting evidence retained")),
         status=VerificationStatus.CONFLICTING_SOURCES)

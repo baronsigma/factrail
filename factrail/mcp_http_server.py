@@ -1,4 +1,4 @@
-"""Factrail v2.1.1 — Production-ready remote MCP server (Streamable HTTP).
+"""Factrail v2.4.0 — Production-ready remote MCP server (Streamable HTTP).
 
 Aligned with MCP specification 2026-07-28:
 - POST /mcp: stateless JSON-RPC requests (no protocol sessions, no GET streams)
@@ -166,6 +166,15 @@ async def handle_list_tools(
     return types.ListToolsResult(
         tools=[
             types.Tool(
+                name="factrail_capabilities",
+                description="Discover registered verification and assessment capabilities, required inputs, fields, sources, and limitations.",
+                input_schema={"type": "object", "properties": {
+                    "operation": {"type": "string", "enum": ["verify", "assess"]},
+                    "capability": {"type": "string", "enum": ["company_fr", "import"]}}, "additionalProperties": False},
+                output_schema={"type": "object", "properties": {"capabilities": {"type": "array", "items": {"type": "object"}}}, "required": ["capabilities"]},
+                annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
+            ),
+            types.Tool(
                 name="factrail_assess",
                 description="Perform an evidence-backed structured assessment. Supports import scenarios and returns an EvidenceEnvelope with source coverage and a receipt.",
                 input_schema={"type": "object", "properties": {
@@ -319,7 +328,7 @@ async def handle_list_tools(
             ),
             types.Tool(
                 name="analyze_company",
-                description="Legacy experimental company analysis. Financial and credit figures are placeholders, not verified risk assessments.",
+                description="Deprecated experimental compatibility-only tool. Financial and credit data sources are unavailable; returned fields are null. Prefer factrail_verify for supported company facts.",
                 input_schema={
                     "type": "object",
                     "properties": {
@@ -329,7 +338,7 @@ async def handle_list_tools(
                         },
                         "company_name": {
                             "type": "string",
-                            "description": "Company legal name for lookup.",
+                            "description": "Optional caller-provided display name; it is echoed without verification.",
                         },
                         "country_code": {
                             "type": "string",
@@ -352,33 +361,70 @@ async def handle_list_tools(
 async def handle_call_tool(
     context: Any, params: types.CallToolRequestParams
 ) -> types.CallToolResult:
+    from .request_context import bind_request_context, from_mcp_context, reset_request_context
+    token = bind_request_context(from_mcp_context(context))
+    try:
+        return await _handle_call_tool(context, params)
+    finally:
+        reset_request_context(token)
+
+
+async def _handle_call_tool(
+    context: Any, params: types.CallToolRequestParams
+) -> types.CallToolResult:
     if params.name in ("factrail_verify", "factrail_assess"):
         from .evidence.demand import record_safely
         start = _time.monotonic()
         args = params.arguments or {}
         operation = "verify" if params.name == "factrail_verify" else "assess"
         capability = args.get("subject_type") if operation == "verify" else args.get("assessment_type")
+        capability_exists = capability == ("company_fr" if operation == "verify" else "import")
         requested = args.get("fields") if operation == "verify" else list(args.get("parameters", {}).keys()) if isinstance(args.get("parameters"), dict) else []
+        if not capability_exists:
+            support_status = "unsupported_capability"
+        elif operation == "verify":
+            from .evidence.company_fr import FIELD_MAP
+            support_status = "unsupported_field" if isinstance(requested, list) and any(field not in FIELD_MAP for field in requested) else "supported"
+        else:
+            support_status = "unsupported_field" if isinstance(requested, list) and any(field not in AssessImportInput.model_fields for field in requested) else "supported"
         result = await (_handle_factrail_verify(params) if operation == "verify" else _handle_factrail_assess(params))
-        envelope = result.structured_content
-        error = None
-        if not isinstance(envelope, dict) and result.content and isinstance(result.content[0], types.TextContent):
+        payload = result.structured_content
+        envelope = payload if isinstance(payload, dict) and "coverage" in payload else None
+        error = payload.get("error") if isinstance(payload, dict) else None
+        if envelope is None and error is None and result.content and isinstance(result.content[0], types.TextContent):
             try:
                 error = json.loads(result.content[0].text).get("error")
             except (ValueError, TypeError, AttributeError):
                 error = "error"
-        coverage = envelope["coverage"] if isinstance(envelope, dict) else {}
-        evidence = envelope["evidence"] if isinstance(envelope, dict) else []
-        failures = [s["source_type"] for s in evidence if s["source_status"] == "unavailable"]
+        coverage = envelope["coverage"] if envelope else {}
+        evidence = envelope["evidence"] if envelope else []
+        source_outcomes = coverage.get("metadata", {}).get("source_outcomes", {}) if isinstance(coverage, dict) else {}
+        source_details = coverage.get("metadata", {}).get("source_details", {}) if isinstance(coverage, dict) else {}
         if error == "upstream" and operation == "verify":
-            failures.append("government_registry")
-        unsupported = capability not in (("company_fr",) if operation == "verify" else ("import",))
+            source_outcomes = {**source_outcomes, "government_registry": "source_error"}
+        if isinstance(evidence, list):
+            for source in evidence:
+                if source.get("source_type") in ("government_registry", "government_bulletin") and source.get("source_status") in ("unavailable", "error"):
+                    source_outcomes.setdefault(source["source_type"], "source_error")
+        failures = [source for source, state in source_outcomes.items() if state in ("source_error", "source_unavailable")]
+        unsupported = not capability_exists
+        from .request_context import current_request_context
+        client_ctx = current_request_context()
+        reasons = coverage.get("metadata", {}).get("unresolved_field_reasons", {}) if isinstance(coverage, dict) else {}
         record_safely(operation=operation, capability=capability, requested_fields=requested,
-            outcome=envelope["status"] if isinstance(envelope, dict) else error or "error",
+            outcome=envelope["status"] if envelope else error or "error",
             coverage=coverage.get("level"), unresolved_fields=coverage.get("fields_unresolved", []),
             unsupported_capability=unsupported, source_failures=failures,
-            latency_ms=(_time.monotonic() - start) * 1000)
+            latency_ms=(_time.monotonic() - start) * 1000, origin_class=client_ctx.origin_class,
+            client_family=client_ctx.client_family, server_version=client_ctx.server_version,
+            request_id=client_ctx.request_id, mcp_client_name=client_ctx.mcp_client_name,
+            mcp_client_version=client_ctx.mcp_client_version,
+            receipt_id=envelope.get("receipt_id") if envelope else None,
+            unresolved_reasons=reasons, source_outcomes=source_outcomes, source_details=source_details,
+            request_support_status=support_status, capability_registry_version="2.3")
         return result
+    if params.name == "factrail_capabilities":
+        return await _handle_factrail_capabilities(params)
     if params.name == "factrail_get_receipt":
         return await _handle_factrail_get_receipt(params)
     if params.name == "verify_french_company":
@@ -407,7 +453,8 @@ def _evidence_result(envelope: Any) -> types.CallToolResult:
 
 def _evidence_error(code: str, message: str) -> types.CallToolResult:
     return types.CallToolResult(content=[types.TextContent(
-        type="text", text=json.dumps({"error": code, "message": message}))], is_error=True)
+        type="text", text=json.dumps({"error": code, "message": message}))],
+        structured_content={"error": code, "message": message}, is_error=True)
 
 
 async def _handle_factrail_verify(params: types.CallToolRequestParams) -> types.CallToolResult:
@@ -437,9 +484,7 @@ async def _handle_factrail_verify(params: types.CallToolRequestParams) -> types.
 
 async def _handle_factrail_assess(params: types.CallToolRequestParams) -> types.CallToolResult:
     from pydantic import ValidationError as ModelValidationError
-    from .evidence.receipts import ReceiptRepository
-    from .evidence.trade import assess_import_evidence
-    from .trade.models import AssessImportInput
+    from .evidence.service import AssessmentRequest, assess
 
     args = params.arguments or {}
     if not isinstance(args.get("assessment_type"), str):
@@ -447,15 +492,8 @@ async def _handle_factrail_assess(params: types.CallToolRequestParams) -> types.
     if args["assessment_type"] != "import":
         return _evidence_error("unsupported_capability", "unsupported assessment_type")
     try:
-        if set(args) - {"assessment_type", "parameters"}:
-            return _evidence_error("invalid_input", "unsupported request field")
-        raw_parameters = args.get("parameters")
-        if not isinstance(raw_parameters, dict):
-            return _evidence_error("invalid_input", "parameters must be an object")
-        if set(raw_parameters) - set(AssessImportInput.model_fields):
-            return _evidence_error("invalid_input", "unsupported import parameter")
-        parameters = AssessImportInput.model_validate(raw_parameters)
-        return _evidence_result(ReceiptRepository().save(assess_import_evidence(parameters)))
+        request = AssessmentRequest.model_validate(args)
+        return _evidence_result(assess(request))
     except ModelValidationError as exc:
         return _evidence_error("invalid_input", str(exc))
     except Exception as exc:
@@ -464,7 +502,7 @@ async def _handle_factrail_assess(params: types.CallToolRequestParams) -> types.
 
 
 async def _handle_factrail_get_receipt(params: types.CallToolRequestParams) -> types.CallToolResult:
-    from .evidence.receipts import ReceiptRepository
+    from .evidence.receipts import ReceiptRepository, ReceiptIntegrityError
     arguments = params.arguments or {}
     receipt_id = arguments.get("receipt_id")
     if set(arguments) != {"receipt_id"} or not isinstance(receipt_id, str) or RECEIPT_ID_PATTERN.fullmatch(receipt_id) is None:
@@ -472,6 +510,8 @@ async def _handle_factrail_get_receipt(params: types.CallToolRequestParams) -> t
     try:
         result = ReceiptRepository().get(receipt_id)
         return _evidence_result(result) if result else _evidence_error("not_found", "receipt not found")
+    except ReceiptIntegrityError:
+        return _evidence_error("integrity_error", "stored receipt content failed integrity verification")
     except Exception as exc:
         logger.error("Unhandled error in factrail_get_receipt")
         return _evidence_error("internal", str(exc))
@@ -599,14 +639,24 @@ async def _handle_analyze_company(
             ]
         )
 
-    return types.CallToolResult(
-        content=[
-            types.TextContent(
-                type="text",
-                text=result.model_dump_json(indent=2, ensure_ascii=False),
-            )
-        ]
-    )
+    payload = result.model_dump(mode="json")
+    return types.CallToolResult(content=[types.TextContent(type="text", text=json.dumps(payload, indent=2, ensure_ascii=False))], structured_content=payload)
+
+
+async def _handle_factrail_capabilities(params: types.CallToolRequestParams) -> types.CallToolResult:
+    from .evidence.service import capability_registry
+    args = params.arguments or {}
+    if set(args) - {"operation", "capability"}:
+        return _evidence_error("invalid_input", "only operation and capability filters are supported")
+    if args.get("operation") not in (None, "verify", "assess") or args.get("capability") not in (None, "company_fr", "import"):
+        return _evidence_error("invalid_input", "filter does not match a registered operation or capability")
+    items = capability_registry()
+    if args.get("operation"):
+        items = [item for item in items if item["operation"] == args["operation"]]
+    if args.get("capability"):
+        items = [item for item in items if item["capability"] == args["capability"]]
+    payload = {"capabilities": items, "evidence_schema_version": "1.2"}
+    return types.CallToolResult(content=[types.TextContent(type="text", text=json.dumps(payload, ensure_ascii=False))], structured_content=payload)
 
 
 async def _cached_lookup(identifier: str) -> FrenchCompany | dict:
@@ -675,7 +725,7 @@ async def _cached_lookup(identifier: str) -> FrenchCompany | dict:
 
 app = Server(
     "factrail",
-    version="2.1.1",
+    version="2.4.0",
     on_list_tools=handle_list_tools,
     on_call_tool=handle_call_tool,
 )
@@ -839,7 +889,7 @@ class FactrailServer:
             except NotImplementedError:
                 pass
 
-        logger.info("factrail_v2.1.1_listening", extra={"host": self.host, "port": self.port})
+        logger.info("factrail_v2.4.0_listening", extra={"host": self.host, "port": self.port})
         await server.serve()
 
     def _request_shutdown(self) -> None:

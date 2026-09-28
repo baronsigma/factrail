@@ -1,0 +1,461 @@
+{
+  "$defs": {
+    "Conflict": {
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "sides": {
+          "items": {
+            "$ref": "#/$defs/ConflictSide"
+          },
+          "minItems": 2,
+          "title": "Sides",
+          "type": "array"
+        },
+        "resolution_status": {
+          "title": "Resolution Status",
+          "type": "string"
+        },
+        "resolution_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolution Reason"
+        }
+      },
+      "required": [
+        "field",
+        "sides",
+        "resolution_status"
+      ],
+      "title": "Conflict",
+      "type": "object"
+    },
+    "ConflictSide": {
+      "properties": {
+        "value": {
+          "title": "Value"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "value",
+        "evidence_ids"
+      ],
+      "title": "ConflictSide",
+      "type": "object"
+    },
+    "Coverage": {
+      "properties": {
+        "level": {
+          "$ref": "#/$defs/CoverageLevel"
+        },
+        "fields_requested": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields Requested",
+          "type": "array"
+        },
+        "fields_resolved": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields Resolved",
+          "type": "array"
+        },
+        "fields_unresolved": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fields Unresolved",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "level",
+        "fields_requested",
+        "fields_resolved",
+        "fields_unresolved"
+      ],
+      "title": "Coverage",
+      "type": "object"
+    },
+    "CoverageLevel": {
+      "enum": [
+        "sufficient",
+        "partial",
+        "insufficient"
+      ],
+      "title": "CoverageLevel",
+      "type": "string"
+    },
+    "EvidenceSource": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "source_type": {
+          "title": "Source Type",
+          "type": "string"
+        },
+        "authority_class": {
+          "title": "Authority Class",
+          "type": "string"
+        },
+        "publisher": {
+          "title": "Publisher",
+          "type": "string"
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url"
+        },
+        "retrieved_at": {
+          "format": "date-time",
+          "title": "Retrieved At",
+          "type": "string"
+        },
+        "effective_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective At"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "source_status": {
+          "title": "Source Status",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "source_type",
+        "authority_class",
+        "publisher",
+        "retrieved_at",
+        "source_status"
+      ],
+      "title": "EvidenceSource",
+      "type": "object"
+    },
+    "Fact": {
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value"
+        },
+        "normalized_value": {
+          "default": null,
+          "title": "Normalized Value"
+        },
+        "effective_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective At"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "jurisdiction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Jurisdiction"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "provenance_type": {
+          "default": "sourced",
+          "title": "Provenance Type",
+          "type": "string"
+        },
+        "support_level": {
+          "$ref": "#/$defs/SupportLevel",
+          "default": "supported"
+        }
+      },
+      "required": [
+        "field",
+        "value",
+        "evidence_ids"
+      ],
+      "title": "Fact",
+      "type": "object"
+    },
+    "Freshness": {
+      "properties": {
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "oldest_supporting_retrieved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Oldest Supporting Retrieved At"
+        },
+        "newest_supporting_retrieved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Newest Supporting Retrieved At"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "recheck_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recheck After"
+        }
+      },
+      "required": [
+        "generated_at",
+        "stale"
+      ],
+      "title": "Freshness",
+      "type": "object"
+    },
+    "Subject": {
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "identifiers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Identifiers",
+          "type": "object"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Subject",
+      "type": "object"
+    },
+    "SupportLevel": {
+      "description": "How strongly a fact is supported, independent of numeric confidence.",
+      "enum": [
+        "authoritative",
+        "supported",
+        "derived_supported",
+        "derived_provisional",
+        "curated",
+        "caller_input"
+      ],
+      "title": "SupportLevel",
+      "type": "string"
+    },
+    "VerificationStatus": {
+      "enum": [
+        "supported",
+        "contradicted",
+        "insufficient_evidence",
+        "stale",
+        "conflicting_sources"
+      ],
+      "title": "VerificationStatus",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "schema_version": {
+      "default": "1.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/VerificationStatus"
+    },
+    "subject": {
+      "$ref": "#/$defs/Subject"
+    },
+    "facts": {
+      "items": {
+        "$ref": "#/$defs/Fact"
+      },
+      "title": "Facts",
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceSource"
+      },
+      "title": "Evidence",
+      "type": "array"
+    },
+    "conflicts": {
+      "items": {
+        "$ref": "#/$defs/Conflict"
+      },
+      "title": "Conflicts",
+      "type": "array"
+    },
+    "coverage": {
+      "$ref": "#/$defs/Coverage"
+    },
+    "freshness": {
+      "$ref": "#/$defs/Freshness"
+    },
+    "receipt_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Receipt Id"
+    },
+    "state_fingerprint": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "State Fingerprint"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "subject",
+    "facts",
+    "evidence",
+    "conflicts",
+    "coverage",
+    "freshness",
+    "generated_at"
+  ],
+  "title": "EvidenceEnvelope",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://factrail.online/schemas/evidence-envelope-1.2.json"
+}

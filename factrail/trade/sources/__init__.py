@@ -1,9 +1,9 @@
-"""V0.1 trade source stubs for EU authoritative data sources.
+"""Trade source adapters and unavailable live-source markers.
 
 In V0 these are stubs that return "unavailable" with provenance.
 The curated reference data path is in vat.py and customs.py.
-Live integration with EU TARIC / Access2Markets / sanctions lists
-is future work.
+Official TARIC assessment uses locally ingested Commission snapshots. These
+adapters do not scrape the human consultation UI or download snapshots.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from ..models import Evidence, ProvenanceStatus
 
 
 class TaricSource:
-    """EU TARIC lookup (V0 stub — returns unavailable)."""
+    """Explicit marker for disabled network TARIC lookup."""
 
     def __init__(self, timeout: float = 10.0) -> None:
         self.timeout = timeout
@@ -27,13 +27,15 @@ class TaricSource:
         return Evidence(
             value=None,
             status=ProvenanceStatus.UNAVAILABLE,
-            authority="European Commission — TARIC",
-            source="EU TARIC (live lookup not available in V0)",
+            authority="European Commission DG TAXUD — TARIC",
+            source="EU_TARIC live fetch unavailable; local snapshot ingestion is supported",
             url="https://ec.europa.eu/taxation_customs/dds2/taric/taric_consultation.jsp",
             retrieved_at=datetime.now(timezone.utc),
             supports=["duty", "tariff"],
             confidence=0.0,
-            note="V0 does not integrate live TARIC queries — duty data not available in V0.",
+            source_outcome="lookup_disabled",
+            source_detail="lookup_disabled",
+            note="Live network lookup is not available in V0. This adapter does not scrape the consultation UI or acquire snapshots; use the local official TARIC snapshot store.",
         )
 
 

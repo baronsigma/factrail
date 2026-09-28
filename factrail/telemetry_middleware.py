@@ -107,14 +107,20 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
         # Fire telemetry (never raises)
         tool_name = self._extract_tool_name(data)
         if tool_name:
+            propagated = getattr(request.state, "factrail_request_context", None)
             record_tool_call(
                 tool_name=tool_name,
                 success=success,
                 latency_ms=latency_ms,
                 cache_status=cache_status,
                 upstream_status=upstream_status,
-                client_family=client_ctx["client_family"],
+                client_family=getattr(propagated, "client_family", client_ctx["client_family"]),
                 daily_client_hash=client_ctx["daily_client_hash"],
+                origin_class=getattr(propagated, "origin_class", client_ctx["origin_class"]),
+                server_version=getattr(propagated, "server_version", client_ctx.get("server_version")),
+                request_id=getattr(propagated, "request_id", client_ctx.get("request_id")),
+                mcp_client_name=getattr(propagated, "mcp_client_name", None),
+                mcp_client_version=getattr(propagated, "mcp_client_version", None),
             )
 
         return response

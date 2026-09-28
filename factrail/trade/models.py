@@ -10,7 +10,7 @@ carried with an explicit marker rather than silently rounded.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from enum import Enum, StrEnum
 from typing import Any, Optional
 
@@ -104,6 +104,9 @@ class AssessImportInput(BaseModel):
         max_length=3,
         examples=["EUR"],
     )
+    assessment_date: Optional[date] = Field(
+        None, description="Optional TARIC effective/simulation date; availability depends on the installed snapshot."
+    )
 
     known_hs_code: Optional[str] = Field(
         None,
@@ -187,6 +190,10 @@ class Evidence(BaseModel):
     supports: list[str] = Field(default_factory=list)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     note: Optional[str] = None
+    # Internal observability signal consumed by the Evidence adapter. Excluded
+    # from legacy assess_import serialization to preserve its public shape.
+    source_outcome: Optional[str] = Field(default=None, exclude=True)
+    source_detail: Optional[str] = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def _normalise_lists(self) -> "Evidence":

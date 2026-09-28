@@ -148,7 +148,7 @@ async def test_assess_mcp_and_telemetry(monkeypatch, tmp_path):
     params = import_input().model_dump(mode="json")
     result = await call("factrail_assess", {"assessment_type": "import", "parameters": params})
     assert not result.is_error
-    assert result.structured_content["schema_version"] == "1.1"
+    assert result.structured_content["schema_version"] == "1.2"
     assert result.structured_content["state_fingerprint"].startswith("fs_")
     receipt = await call("factrail_get_receipt", {"receipt_id": result.structured_content["receipt_id"]})
     assert receipt.structured_content == result.structured_content
@@ -158,7 +158,8 @@ async def test_assess_mcp_and_telemetry(monkeypatch, tmp_path):
     report = DemandStore(path).report()
     assert report["total_calls"] == 4
     assert report["unsupported_capabilities"]
-    assert report["source_failures"].get("tariff_registry", 0) >= 1
+    assert report["source_failures"].get("tariff_registry", 0) == 0
+    assert report["source_outcomes"].get("tariff_registry", {}).get("partial", 0) >= 1
     with sqlite3.connect(path) as conn:
         dump = json.dumps(conn.execute("SELECT * FROM evidence_demand").fetchall())
     assert "750ml insulated" not in dump
