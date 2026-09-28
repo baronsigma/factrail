@@ -7,9 +7,11 @@ queries never require a network connection.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import re
+import shutil
 import sqlite3
 import tempfile
 import zipfile
@@ -22,6 +24,7 @@ from openpyxl import load_workbook
 PUBLISHER = "European Commission DG TAXUD"
 SOURCE = "EU_TARIC"
 INGESTION_VERSION = "1.0"
+PARSER_VERSION = "2.4.0B"
 
 # These are the semantic extract table names in the Commission extraction guide.
 # Full snapshots require all tables needed to determine applicability. A caller may
@@ -86,6 +89,7 @@ _FIELD_ALIASES = {
     "condition_sequence": {"conditionsequencenumber", "sequencenumber"},
     "certificate_code": {"certificatecode", "certificate"},
     "country_code": {"countrycode", "countrycodeabbreviation", "membercountrycode", "member", "country"},
+    "member_code": {"countryterritorycode", "memberidentifiercode", "membercode"},
     "parent_area": {"parentarea", "parentgeographicalarea", "countrygroupcode", "countrygroup", "geographicalareaid", "groupcode", "areacode", "countrygroupidentifier"},
     "area_id": {"areaid", "geographicalareaid", "geographicalareacode", "geocode", "measurearea", "countrygroupcode", "code"},
     "excluded_area": {"excludedarea", "excludedgeographicalarea", "excludedcountry", "excludedcode", "excludedcountrycode", "countryterritoryexcluded"},
@@ -96,10 +100,35 @@ _FIELD_ALIASES = {
     "measurement_unit": {"measurementunit", "measurementunitcode", "measurementunitidentifier", "unit"},
     "measurement_qualifier": {"measurementunitqualifier", "measurementqualifier", "unitqualifier"},
     "monetary_unit": {"monetaryunit", "currencycode", "currency"},
-    "is_leaf": {"isleaf"},
     "operation": {"publish", "operation"},
     "sequence_number": {"sequencenumber", "sequence"},
 }
+
+# Header semantics are centralized here. Canonical headings are based on the
+# Commission extraction guide; only confirmed spelling variants belong here.
+# Strict mode accepts the canonical normalized heading. Compatible mode also
+# accepts these documented aliases, provided every mapping is one-to-one.
+CANONICAL_HEADERS = {
+    "Goods_Nomenclature": {"goods_code", "validity_start", "validity_end", "hierarchy_level", "description"},
+    "Declarable_Codes": {"goods_code", "is_declarable", "validity_start", "validity_end"},
+    "Measures": {"goods_code", "additional_code", "quota_order_number", "validity_start", "validity_end", "geographical_area", "measure_type", "regulation", "duty_expression"},
+    "Geographical_Area_Membership": {"parent_area", "country_code", "validity_start", "validity_end"},
+    "Measure_Exclusions": {"goods_code", "measure_type", "geographical_area", "excluded_area"},
+    "Measure_Conditions": {"goods_code", "measure_type", "condition_code"},
+    "Measure_Footnotes": {"goods_code", "measure_type", "footnote_code"},
+    "Legal_Bases": {"regulation"},
+    "Additional_Codes": {"additional_code"},
+}
+CRITICAL_HEADERS = {
+    "Goods_Nomenclature": {"goods_code", "validity_start", "validity_end", "hierarchy_level"},
+    "Declarable_Codes": {"goods_code", "is_declarable", "validity_start", "validity_end"},
+    "Measures": {"goods_code", "validity_start", "validity_end", "geographical_area", "measure_type", "duty_expression"},
+    "Geographical_Area_Membership": {"parent_area", "country_code"},
+}
+OPTIONAL_TABLES = frozenset(FULL_REQUIRED_TABLES - {"Goods_Nomenclature", "Measures"})
+
+SUPPORTED_DUTY_RE = re.compile(r"^\s*(?:\d+(?:[.,]\d+)?\s*%|free|0\s*(?:%|$))\s*$", re.I)
+MEASUREMENT_STRUCTURE_FIELDS = ("duty_amount", "measurement_unit", "measurement_qualifier", "monetary_unit")
 
 
 class TaricSnapshotError(ValueError):
@@ -149,26 +178,17 @@ def _canonical_row(headers: list[Any], values: Iterable[Any], table: str) -> dic
         text = _cell_text(value)
         if not name or text is None:
             continue
-        key = _norm(name)
         row[name] = text
-        if "measuretype" in key and "code" in key:
-            row["measure_type"] = text
-        if "isleaf" in key:
-            row["is_declarable"] = text
-        if key in {"countrygroupcode", "countrygroupidentifier"}:
+        field, _ = _field_for_header(name, table, "compatible")
+        if field:
+            row[field] = text
+        key = _norm(name)
+        if table == "Geographical_Area_Membership" and key in {"countrygroupcode", "countrygroupidentifier"}:
             row["parent_area"] = text
-        if key in {"countrycodeabbreviation", "membercountrycode", "isocode"}:
-            row["country_code"] = text
-        if key in {"countryterritorycode", "memberidentifiercode", "membercode"}:
-            row["member_code"] = text
         if key in {"countrybecamemember", "membershipstartdate", "countrybecamememberdate"}:
             row["validity_start"] = text
         if key in {"countryceasetobemember", "membershipenddate", "countryceasetobememberdate"}:
             row["validity_end"] = text
-        for canonical, aliases in _FIELD_ALIASES.items():
-            if key in aliases:
-                row[canonical] = text
-                break
     if table == "Geographical_Areas" and "geographical_area" in row:
         row["area_id"] = row["geographical_area"]
     if table == "Geographical_Area_Membership":
@@ -204,20 +224,257 @@ def _canonical_row(headers: list[Any], values: Iterable[Any], table: str) -> dic
     return row
 
 
+def _field_for_header(header: Any, table: str, mode: str) -> tuple[str | None, str | None]:
+    """Return a canonical semantic field and optional compatibility note."""
+    raw = _cell_text(header)
+    key = _norm(raw)
+    candidates = [field for field, aliases in _FIELD_ALIASES.items() if key == _norm(field) or key in aliases]
+    if table == "Geographical_Area_Membership" and key in {"countrygroupcode", "countrygroupidentifier"}:
+        candidates = ["parent_area"]
+    # Exact official vocabulary has a few table-specific meanings.
+    if key == "origin" and table == "Measures":
+        candidates = ["geographical_area"]
+    if key == "label" and table == "Duty_Expressions":
+        candidates = ["duty_expression_label"]
+    if key == "code" and table in {"Geographical_Areas", "Measure_Types", "Duty_Expressions"}:
+        candidates = ["area_id" if table == "Geographical_Areas" else "measure_type" if table == "Measure_Types" else "duty_expression"]
+    candidates = list(dict.fromkeys(candidates))
+    if len(candidates) > 1:
+        raise TaricSnapshotError(f"Ambiguous header {raw!r} in {table}: {', '.join(candidates)}")
+    if not candidates:
+        return None, None
+    field = candidates[0]
+    if mode == "strict" and raw != field:
+        # Strict mode uses semantic field keys as canonical headers, avoiding
+        # silent interpretation of source-specific labels.
+        raise TaricSnapshotError(f"Strict mode rejects non-canonical header {raw!r} in {table}; canonical header is {field!r}")
+    note = None if raw == field else f"mapped header {raw!r} to {field!r} in {table}"
+    return field, note
+
+
+def _discover_package(source: str | Path, mode: str = "compatible", partial: bool = False) -> dict[str, Any]:
+    """Inspect files/workbooks without activation and produce an acceptance report."""
+    if mode not in {"strict", "compatible"}:
+        raise ValueError("mode must be 'strict' or 'compatible'")
+    source_files, package_format = _source_files(source)
+    tables: dict[str, list[dict[str, Any]]] = {}
+    discovered_files: list[dict[str, Any]] = []
+    unknown_tables: list[dict[str, str]] = []
+    parse_errors: list[str] = []
+    adaptations: list[str] = []
+    malformed_rows: list[dict[str, Any]] = []
+    headers_by_table: dict[str, list[list[str]]] = {}
+    normalized_headers: dict[str, list[list[str]]] = {}
+    duplicate_issues: list[dict[str, Any]] = []
+    duty_patterns: dict[str, dict[str, Any]] = {}
+    date_candidates: list[dict[str, Any]] = []
+    recognized_columns: dict[str, set[str]] = {}
+    unknown_columns: dict[str, set[str]] = {}
+    for name, content in source_files:
+        file_info = {"name": name, "sha256": hashlib.sha256(content).hexdigest(), "bytes": len(content), "sheets": []}
+        try:
+            book = load_workbook(filename=io.BytesIO(content), read_only=True, data_only=True)
+        except Exception as exc:
+            parse_errors.append(f"Malformed Excel workbook {name}: {type(exc).__name__}")
+            discovered_files.append(file_info)
+            continue
+        try:
+            for sheet in book.worksheets:
+                table = _table_name(sheet.title) or _table_name(name)
+                info = {"name": sheet.title, "recognized_table": table}
+                file_info["sheets"].append(info)
+                if table is None:
+                    unknown_tables.append({"file": name, "sheet": sheet.title})
+                    continue
+                rows = sheet.iter_rows(values_only=True)
+                raw_headers = list(next(rows, ()))
+                header_names = [_cell_text(x) or "" for x in raw_headers]
+                fields: list[str | None] = []
+                for header in raw_headers:
+                    try:
+                        field, adaptation = _field_for_header(header, table, mode)
+                        fields.append(field)
+                        if adaptation:
+                            adaptations.append(adaptation)
+                    except TaricSnapshotError as exc:
+                        parse_errors.append(str(exc))
+                        fields.append(None)
+                info["headers"] = header_names
+                info["normalized_headers"] = [x for x in fields if x]
+                headers_by_table.setdefault(table, []).append(header_names)
+                normalized_headers.setdefault(table, []).append([x or "" for x in fields])
+                recognized_columns.setdefault(table, set()).update(x for x in fields if x)
+                unknown_columns.setdefault(table, set()).update(h for h, f in zip(header_names, fields) if h and f is None)
+                count = 0
+                for row_number, values in enumerate(rows, start=2):
+                    vals = list(values)
+                    if not any(v is not None for v in vals):
+                        continue
+                    count += 1
+                    try:
+                        canonical = _canonical_row(raw_headers, vals, table)
+                    except TaricSnapshotError as exc:
+                        parse_errors.append(str(exc))
+                        malformed_rows.append({"table": table, "file": name, "sheet": sheet.title,
+                                               "row": row_number, "issue": "ambiguous column semantics"})
+                        continue
+                    canonical["_source_file"] = name
+                    canonical["_source_sheet"] = sheet.title
+                    canonical["_source_row"] = row_number
+                    if table == "Measures":
+                        expr = canonical.get("duty_expression")
+                        structure = {key: canonical.get(key) for key in MEASUREMENT_STRUCTURE_FIELDS if canonical.get(key) is not None}
+                        pattern = json.dumps({"expression": expr, "measurement_structure": structure}, sort_keys=True)
+                        category = "supported" if expr and SUPPORTED_DUTY_RE.fullmatch(expr) else "preserved_but_not_calculable" if expr or structure else "unsupported"
+                        duty_patterns[pattern] = {"pattern": json.loads(pattern), "classification": category}
+                        if not re.fullmatch(r"\d{10}", str(canonical.get("goods_code") or "")):
+                            malformed_rows.append({"table": table, "file": name, "sheet": sheet.title, "row": row_number, "issue": "measure goods_code must contain ten digits"})
+                        for date_field in ("validity_start", "validity_end"):
+                            if canonical.get(date_field):
+                                date_candidates.append({"table": table, "field": date_field, "value": canonical[date_field], "file": name, "row": row_number})
+                    if table in {"Goods_Nomenclature", "Declarable_Codes"}:
+                        code = str(canonical.get("goods_code") or "")
+                        suffix = str(canonical.get("product_line_suffix") or "")
+                        if not code.isdigit() or len(code) != 10:
+                            malformed_rows.append({"table": table, "file": name, "sheet": sheet.title, "row": row_number, "issue": "goods code must normalize to ten digits"})
+                        if suffix and (len(suffix) != 2 or not suffix.isdigit()):
+                            malformed_rows.append({"table": table, "file": name, "sheet": sheet.title, "row": row_number, "issue": "product-line suffix must be two digits"})
+                        if not suffix:
+                            malformed_rows.append({"table": table, "file": name, "sheet": sheet.title, "row": row_number, "issue": "product-line suffix is missing"})
+                        if table == "Declarable_Codes" and canonical.get("is_declarable") not in {"0", "1"}:
+                            malformed_rows.append({"table": table, "file": name, "sheet": sheet.title, "row": row_number, "issue": "IS_LEAF must be 0 or 1"})
+                        if table == "Goods_Nomenclature" and canonical.get("hierarchy_level") not in {"2", "4", "6", "8", "10"}:
+                            malformed_rows.append({"table": table, "file": name, "sheet": sheet.title, "row": row_number, "issue": "hierarchy level must be 2, 4, 6, 8, or 10"})
+                    for field in ("validity_start", "validity_end"):
+                        value = _date_text(canonical.get(field))
+                        if value and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                            malformed_rows.append({"table": table, "file": name, "sheet": sheet.title, "row": row_number, "issue": f"invalid {field}: {value}"})
+                    start, end = _date_text(canonical.get("validity_start")), _date_text(canonical.get("validity_end"))
+                    if start and end and start > end:
+                        malformed_rows.append({"table": table, "file": name, "sheet": sheet.title, "row": row_number, "issue": "validity start is after validity end"})
+                    tables.setdefault(table, []).append(canonical)
+                info["row_count"] = count
+        finally:
+            book.close()
+        discovered_files.append(file_info)
+    present = set(tables)
+    missing_required = sorted(CORE_REQUIRED_TABLES - present)
+    missing_optional = sorted(OPTIONAL_TABLES - present)
+    missing_critical_columns = {table: sorted(fields - recognized_columns.get(table, set()))
+                                for table, fields in CRITICAL_HEADERS.items()
+                                if fields - recognized_columns.get(table, set()) and not (partial and table not in present)}
+    # Duplicate identifiers are reported by natural keys when available.
+    key_fields = {"Goods_Nomenclature": ("goods_code", "product_line_suffix", "validity_start"),
+                  "Declarable_Codes": ("goods_code", "product_line_suffix", "validity_start"),
+                  "Measures": ("goods_code", "additional_code", "quota_order_number", "validity_start", "geographical_area", "measure_type")}
+    for table, keys in key_fields.items():
+        seen: set[tuple[Any, ...]] = set()
+        for row in tables.get(table, []):
+            key = tuple(row.get(k) for k in keys)
+            identity_present = bool(row.get("goods_code")) and bool(row.get("validity_start"))
+            if table == "Measures":
+                identity_present = identity_present and bool(row.get("measure_type")) and bool(row.get("geographical_area"))
+            if identity_present and key in seen:
+                duplicate_issues.append({"table": table, "key_fields": list(keys), "key": list(key)})
+            seen.add(key)
+    errors = list(parse_errors)
+    if missing_required:
+        errors.append("missing required tables: " + ", ".join(missing_required))
+    if missing_critical_columns:
+        errors.append("missing critical columns: " + json.dumps(missing_critical_columns, sort_keys=True))
+    accepted = not errors and not malformed_rows and not duplicate_issues and all(
+        len(_date_text(row.get("validity_start")) or "") == 10 and len(_date_text(row.get("validity_end")) or "") == 10
+        for rows in tables.values() for row in rows
+        if row.get("validity_start") and row.get("validity_end")
+    )
+    return {
+        "source": SOURCE, "publisher": PUBLISHER, "mode": mode, "package_format": package_format,
+        "package_name": Path(source).name,
+        "files": discovered_files, "recognized_tables": {t: len(rows) for t, rows in sorted(tables.items())},
+        "unknown_tables": unknown_tables,
+        "required_tables": {"present": sorted(CORE_REQUIRED_TABLES & present), "missing": missing_required,
+                            "other_required_missing": sorted(FULL_REQUIRED_TABLES - present)},
+        "optional_tables": {"present": sorted(OPTIONAL_TABLES & present), "missing": missing_optional},
+        "headers": {t: headers_by_table.get(t, []) for t in sorted(set(headers_by_table) | set(normalized_headers))},
+        "normalized_headers": normalized_headers,
+        "recognized_columns": {t: sorted(v) for t, v in sorted(recognized_columns.items())},
+        "unknown_columns": {t: sorted(v) for t, v in sorted(unknown_columns.items())},
+        "missing_critical_columns": missing_critical_columns,
+        "adaptations": sorted(set(adaptations)), "row_counts": {t: len(v) for t, v in sorted(tables.items())},
+        "date_reference_candidates": date_candidates[:100], "duplicate_key_issues": duplicate_issues,
+        "malformed_rows": malformed_rows, "parse_errors": errors,
+        "duty_expression_patterns": sorted(duty_patterns.values(), key=lambda x: json.dumps(x["pattern"], sort_keys=True)),
+        "field_candidates": {
+            "nomenclature": ["goods_code", "hierarchy_level", "description", "validity_start", "validity_end"],
+            "product_line_suffix": sorted({str(r.get("product_line_suffix")) for r in tables.get("Goods_Nomenclature", []) if r.get("product_line_suffix")}),
+            "leaf_declarability": sorted({str(r.get("is_declarable")) for r in tables.get("Declarable_Codes", []) if r.get("is_declarable")}),
+            "geographic_references": sorted({str(r.get("geographical_area") or r.get("parent_area") or r.get("area_id")) for r in tables.get("Measures", []) if r.get("geographical_area") or r.get("parent_area") or r.get("area_id")})[:100],
+            "legal_bases": sorted({str(r.get("regulation")) for r in tables.get("Measures", []) if r.get("regulation")})[:100],
+            "additional_codes": sorted({str(r.get("additional_code")) for r in tables.get("Measures", []) if r.get("additional_code")})[:100],
+            "conditions_fields": sorted(recognized_columns.get("Measure_Conditions", set())),
+            "footnotes_fields": sorted(recognized_columns.get("Measure_Footnotes", set())),
+        },
+        "snapshot_sha256": _package_sha256(source_files, source),
+        "accepted": accepted,
+        "supported_scope": ["nomenclature", "raw measures"] if missing_optional else ["nomenclature", "geography", "measures", "conditions", "references"],
+        "warnings": [f"unknown columns in {table}: {', '.join(cols)}" for table, cols in sorted(unknown_columns.items()) if cols]
+                    + [f"unknown table in {item['file']}: {item['sheet']}" for item in unknown_tables]
+                    + [f"optional table missing: {name}" for name in missing_optional],
+        "statistics": {"files": len(source_files), "rows": sum(map(len, tables.values())), "tables": len(tables),
+                       "unsupported_expression_patterns": sum(x["classification"] == "unsupported" for x in duty_patterns.values()),
+                       "preserved_not_calculable_patterns": sum(x["classification"] == "preserved_but_not_calculable" for x in duty_patterns.values())},
+    }
+
+
+def _package_sha256(source_files: list[tuple[str, bytes]], source: str | Path | None = None) -> str:
+    if source is not None:
+        path = Path(source)
+        if path.is_file():
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+    payload = b"".join(name.encode() + b"\0" + bytes.fromhex(hashlib.sha256(content).hexdigest())
+                       for name, content in sorted(source_files, key=lambda item: item[0]))
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _archive_source(source: str | Path, store_root: Path, snapshot_hash: str) -> list[dict[str, str]]:
+    """Retain the original operator-supplied package/files for audit."""
+    source_path = Path(source)
+    archive_root = store_root / "source_archive" / snapshot_hash
+    archive_root.mkdir(parents=True, exist_ok=True)
+    entries: list[dict[str, str]] = []
+    if source_path.is_dir():
+        candidates = sorted(p for p in source_path.rglob("*") if p.is_file() and p.suffix.lower() in {".xlsx", ".xlsm"})
+        for path in candidates:
+            relative = path.relative_to(source_path)
+            destination = archive_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if path.resolve() != destination.resolve():
+                shutil.copyfile(path, destination)
+            entries.append({"original_name": relative.as_posix(), "archived_path": destination.relative_to(store_root).as_posix(),
+                            "sha256": hashlib.sha256(path.read_bytes()).hexdigest()})
+    else:
+        destination = archive_root / source_path.name
+        if source_path.resolve() != destination.resolve():
+            shutil.copyfile(source_path, destination)
+        entries.append({"original_name": source_path.name, "archived_path": destination.relative_to(store_root).as_posix(),
+                        "sha256": hashlib.sha256(source_path.read_bytes()).hexdigest()})
+    return entries
+
+
 def _source_files(source: str | Path) -> tuple[list[tuple[str, bytes]], str]:
     path = Path(source)
     if path.is_dir():
-        files = [(p.relative_to(path).as_posix(), p.read_bytes()) for p in sorted(path.rglob("*.xlsx"))]
+        files = [(p.relative_to(path).as_posix(), p.read_bytes()) for p in sorted(path.rglob("*")) if p.is_file() and p.suffix.lower() == ".xlsx"]
         if not files:
             raise TaricSnapshotError("No .xlsx workbooks found in snapshot directory")
         return files, "directory"
     if not path.is_file():
         raise TaricSnapshotError(f"Snapshot path does not exist: {path}")
-    if path.suffix.lower() == ".xlsx":
-        return [(path.name, path.read_bytes())], "xlsx"
+    if path.suffix.lower() in {".xlsx", ".xlsm"}:
+        return [(path.name, path.read_bytes())], path.suffix.lower().lstrip(".")
     if zipfile.is_zipfile(path):
         with zipfile.ZipFile(path) as archive:
-            files = [(n, archive.read(n)) for n in sorted(archive.namelist()) if n.lower().endswith(".xlsx") and not n.startswith("__MACOSX/")]
+            files = [(n, archive.read(n)) for n in sorted(archive.namelist()) if n.lower().endswith((".xlsx", ".xlsm")) and not n.startswith("__MACOSX/")]
         if not files:
             raise TaricSnapshotError("ZIP contains no .xlsx workbooks")
         return files, "zip"
@@ -301,22 +558,44 @@ class OfficialTaricStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def ingest(self, source: str | Path, *, reference_date: str, partial: bool = False,
-               retrieved_at: datetime | None = None) -> dict[str, Any]:
+               retrieved_at: datetime | None = None, mode: str = "compatible",
+               acceptance_report: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
-            result = self._ingest(source, reference_date=reference_date, partial=partial, retrieved_at=retrieved_at)
+            result = self._ingest(source, reference_date=reference_date, partial=partial, retrieved_at=retrieved_at,
+                                  mode=mode, acceptance_report=acceptance_report)
             (self.root / "refresh-failure.json").unlink(missing_ok=True)
             return result
         except Exception as exc:
             self.record_refresh_failure("snapshot_validation_failed", error_code=type(exc).__name__)
+            _atomic_json(self.root / "validation-failed.json", {
+                "state": "validation_failed", "failed_at": datetime.now(timezone.utc).isoformat(),
+                "error_code": type(exc).__name__, "detail": str(exc),
+            })
             raise
 
     def _ingest(self, source: str | Path, *, reference_date: str, partial: bool = False,
-               retrieved_at: datetime | None = None) -> dict[str, Any]:
+               retrieved_at: datetime | None = None, mode: str = "compatible",
+               acceptance_report: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
             ref_date = date.fromisoformat(reference_date).isoformat()
         except ValueError as exc:
             raise TaricSnapshotError("reference_date must be YYYY-MM-DD") from exc
         source_files, package_format = _source_files(source)
+        inspected_report = self.doctor(source, mode=mode, partial=partial, persist=True)
+        if acceptance_report is not None and (
+            acceptance_report.get("snapshot_sha256") != inspected_report.get("snapshot_sha256")
+            or acceptance_report.get("accepted") is not inspected_report.get("accepted")
+        ):
+            raise TaricSnapshotError("Supplied acceptance report rejected or does not match fresh package validation")
+        report = inspected_report
+        acceptance_dir = self.root / "acceptance"
+        acceptance_dir.mkdir(parents=True, exist_ok=True)
+        _atomic_json(acceptance_dir / f"{report.get('snapshot_sha256', 'unknown')}.json", report)
+        if not report.get("accepted"):
+            reasons = report.get("parse_errors", []) + [str(r.get("issue")) for r in report.get("malformed_rows", [])]
+            raise TaricSnapshotError("Acceptance report rejected this snapshot: " + "; ".join(reasons[:8]))
+        if report.get("snapshot_sha256") != _package_sha256(source_files, source):
+            raise TaricSnapshotError("Acceptance report hash does not match package")
         tables, file_manifest = _read_tables(source_files)
         missing = sorted(FULL_REQUIRED_TABLES - tables.keys())
         if missing and not partial:
@@ -331,14 +610,15 @@ class OfficialTaricStore:
         absent_applicability = sorted(applicability_tables - tables.keys())
         if absent_applicability and not partial:
             raise TaricSnapshotError("Snapshot is missing applicability tables: " + ", ".join(absent_applicability) + "; pass partial=True only when the reduced scope is intentional")
-        digest_payload = b"".join(name.encode() + b"\0" + bytes.fromhex(entry["sha256"]) for (name, _), entry in zip(source_files, file_manifest))
-        snapshot_hash = hashlib.sha256(digest_payload).hexdigest()
+        snapshot_hash = report["snapshot_sha256"]
         retrieved = (retrieved_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat()
         manifest = {
             "source": SOURCE, "publisher": PUBLISHER, "reference_date": ref_date,
+            "package_name": report.get("package_name"), "import_method": "manual",
             "retrieved_at": retrieved, "files": file_manifest, "sha256": snapshot_hash,
             "format_version": "Commission TARIC Excel extraction (table-level source format)",
             "ingestion_version": INGESTION_VERSION, "package_format": package_format,
+            "parser_version": PARSER_VERSION, "acceptance_report": report,
             "partial": bool(missing or absent_applicability),
             "missing_tables": sorted(set(missing) | set(absent_applicability)),
             "supported_scope": ["nomenclature", "raw measures"] if missing or absent_applicability else ["nomenclature", "geography", "measures", "conditions", "references"],
@@ -350,6 +630,23 @@ class OfficialTaricStore:
             stage = Path(stage_name)
             try:
                 self._build_database(stage, manifest, tables)
+                sanity = self._semantic_sanity(tables)
+                if sanity["errors"]:
+                    report["accepted"] = False
+                    report["semantic_sanity"] = sanity
+                    report.setdefault("parse_errors", []).extend(sanity["errors"])
+                    _atomic_json(acceptance_dir / f"{snapshot_hash}.json", report)
+                    raise TaricSnapshotError("Semantic validation failed: " + "; ".join(sanity["errors"][:10]))
+                manifest["semantic_sanity"] = sanity
+                manifest["acceptance_report"]["semantic_sanity"] = sanity
+                manifest["acceptance_report"]["accepted"] = bool(report.get("accepted")) and sanity["accepted"]
+                if not manifest["acceptance_report"]["accepted"]:
+                    raise TaricSnapshotError("Acceptance report did not pass semantic checks")
+                # Rewrite staged metadata with the completed acceptance report.
+                with sqlite3.connect(stage) as stage_db:
+                    for key, value in manifest.items():
+                        stage_db.execute("INSERT OR REPLACE INTO metadata VALUES (?,?)", (key, json.dumps(value, sort_keys=True)))
+                    stage_db.commit()
                 self._sanity_check(stage, manifest)
                 os.replace(stage, db_path)
             finally:
@@ -357,12 +654,106 @@ class OfficialTaricStore:
         # Check data before changing either pointer. Active good snapshot remains
         # untouched if validation/building fails.
         self._sanity_check(db_path, manifest)
+        archived_source_files = _archive_source(source, self.root, snapshot_hash)
+        with sqlite3.connect(db_path) as db:
+            db.execute("INSERT OR REPLACE INTO metadata VALUES (?,?)",
+                       ("archived_source_files", json.dumps(archived_source_files, sort_keys=True)))
+            db.commit()
+        manifest["archived_source_files"] = archived_source_files
+        persisted_report = {**report, "semantic_sanity": manifest.get("semantic_sanity"), "accepted": True}
+        _atomic_json(acceptance_dir / f"{snapshot_hash}.json", persisted_report)
+        (self.root / "validation-failed.json").unlink(missing_ok=True)
         old = self._read_pointer("active.json")
         if old and old.get("sha256") != snapshot_hash:
             _atomic_json(self.root / "previous.json", old)
         pointer = {"sha256": snapshot_hash, "database": db_path.name, "activated_at": retrieved}
         _atomic_json(self.root / "active.json", pointer)
         return self.status()
+
+    @staticmethod
+    def _semantic_sanity(tables: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
+        errors: list[str] = []
+        warnings: list[str] = []
+        counts: dict[str, int] = {}
+        goods = tables.get("Goods_Nomenclature", [])
+        code_keys: set[tuple[str, str | None]] = set()
+        levels: dict[str, str] = {}
+        for row in goods:
+            code = str(row.get("goods_code") or "")
+            suffix = row.get("product_line_suffix")
+            if not re.fullmatch(r"\d{10}", code):
+                errors.append(f"invalid goods code at {row.get('_source_file')}:{row.get('_source_row')}")
+            if suffix is not None and not re.fullmatch(r"\d{2}", str(suffix)):
+                errors.append(f"invalid product-line suffix for {code}: {suffix}")
+            code_keys.add((code, str(suffix) if suffix is not None else None))
+            if row.get("hierarchy_level"):
+                levels[code] = str(row["hierarchy_level"])
+        for row in tables.get("Measures", []):
+            code = str(row.get("goods_code") or "")
+            if not re.fullmatch(r"\d{10}", code):
+                errors.append(f"invalid measure goods code at {row.get('_source_file')}:{row.get('_source_row')}")
+            start, end = _date_text(row.get("validity_start")), _date_text(row.get("validity_end"))
+            if start and end and start > end:
+                errors.append(f"measure validity start after end: {code}")
+        for table, rows in tables.items():
+            for row in rows:
+                start, end = _date_text(row.get("validity_start")), _date_text(row.get("validity_end"))
+                if start and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", start):
+                    errors.append(f"invalid validity start in {table}: {start}")
+                if end and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end):
+                    errors.append(f"invalid validity end in {table}: {end}")
+                if start and end and start > end:
+                    errors.append(f"validity start after end in {table}: {start} > {end}")
+        # Ancestor links should resolve to an existing nomenclature code where
+        # parent-level records are represented explicitly.
+        known_codes = {code for code, _ in code_keys}
+        missing_measure_codes = sorted({str(r.get("goods_code")) for r in tables.get("Measures", [])
+                                        if r.get("goods_code") and str(r["goods_code"]) not in known_codes})
+        if missing_measure_codes:
+            errors.append(f"measure goods codes absent from nomenclature: {len(missing_measure_codes)}")
+        area_ids = {str(r.get("area_id") or r.get("geographical_area") or "") for r in tables.get("Geographical_Areas", [])}
+        area_ids.update(str(r.get("parent_area") or r.get("area_id") or "") for r in tables.get("Geographical_Area_Membership", []))
+        unresolved_areas = sorted({str(r.get("geographical_area")) for r in tables.get("Measures", [])
+                                   if r.get("geographical_area") and str(r["geographical_area"]) not in area_ids
+                                   and str(r["geographical_area"]).upper() not in {"ERGA OMNES", "WORLD", "WORLDWIDE"}})
+        if unresolved_areas and tables.get("Geographical_Areas"):
+            errors.append(f"geographical references not resolved in extracted description/composition tables: {len(unresolved_areas)}")
+        additional_ids = {str(r.get("additional_code")) for r in tables.get("Additional_Codes", []) if r.get("additional_code")}
+        unresolved_additional = sorted({str(r.get("additional_code")) for r in tables.get("Measures", [])
+                                        if r.get("additional_code") and str(r["additional_code"]) not in additional_ids})
+        if unresolved_additional and tables.get("Additional_Codes"):
+            errors.append(f"additional-code references unresolved: {len(unresolved_additional)}")
+        type_ids = {str(r.get("measure_type")) for r in tables.get("Measure_Types", []) if r.get("measure_type")}
+        unresolved_types = sorted({str(r.get("measure_type")) for r in tables.get("Measures", [])
+                                   if r.get("measure_type") and type_ids and str(r["measure_type"]) not in type_ids})
+        if unresolved_types:
+            if tables.get("Measure_Types"):
+                errors.append(f"measure types unresolved: {len(unresolved_types)}")
+            else:
+                warnings.append(f"measure types could not be checked because Measure_Types is absent: {len(unresolved_types)}")
+        legal_ids = {str(r.get("regulation")) for r in tables.get("Legal_Bases", []) if r.get("regulation")}
+        unresolved_legal = sorted({str(r.get("regulation")) for r in tables.get("Measures", [])
+                                   if r.get("regulation") and legal_ids and str(r["regulation"]) not in legal_ids})
+        if unresolved_legal:
+            errors.append(f"measure legal-base references unresolved: {len(unresolved_legal)}")
+        counts["goods_codes"] = len(goods)
+        counts["measures"] = len(tables.get("Measures", []))
+        counts["unresolved_measure_goods_codes"] = len(missing_measure_codes)
+        counts["unresolved_geographical_references"] = len(unresolved_areas)
+        counts["unresolved_additional_codes"] = len(unresolved_additional)
+        counts["unresolved_measure_types"] = len(unresolved_types)
+        return {"accepted": not errors, "errors": errors, "warnings": warnings, "statistics": counts}
+
+    def doctor(self, source: str | Path, *, mode: str = "compatible", partial: bool = False, persist: bool = True) -> dict[str, Any]:
+        report = _discover_package(source, mode=mode, partial=partial)
+        report.update({"reference_date_candidates": report.pop("date_reference_candidates", []),
+                       "ingestion_version": INGESTION_VERSION, "parser_version": PARSER_VERSION,
+                       "retrieved_at": datetime.now(timezone.utc).isoformat()})
+        if persist:
+            directory = self.root / "acceptance"
+            directory.mkdir(parents=True, exist_ok=True)
+            _atomic_json(directory / f"{report['snapshot_sha256']}.json", report)
+        return report
 
     def _build_database(self, path: Path, manifest: dict[str, Any], tables: dict[str, list[dict[str, Any]]]) -> None:
         with sqlite3.connect(path) as db:
@@ -444,11 +835,13 @@ class OfficialTaricStore:
         active = self._read_pointer("active.json")
         previous = self._read_pointer("previous.json")
         result: dict[str, Any] = {"source": SOURCE, "publisher": PUBLISHER,
-                                  "state": "ready" if active else "source_unavailable",
+                                  "state": "installed_current" if active else "not_installed",
+                                  "installation_state": "installed_current" if active else "not_installed",
                                   "active": None, "last_good": None}
         failed_refresh = self._read_pointer("refresh-failure.json")
         if active and failed_refresh:
-            result["state"] = "stale"
+            result["state"] = "installed_stale"
+            result["installation_state"] = "installed_stale"
             result["last_refresh_failure"] = failed_refresh
         for label, pointer in (("active", active), ("last_good", previous or active)):
             if not pointer:
@@ -460,6 +853,33 @@ class OfficialTaricStore:
             result[label] = {**pointer, **meta, "row_counts": counts,
                              "stale": bool(failed_refresh and label == "active"),
                              "source_detail": "stale_cache_after_refresh_failure" if failed_refresh and label == "active" else None}
+        if active and not failed_refresh:
+            active_ref = result.get("active", {}).get("reference_date")
+            if active_ref and active_ref < datetime.now(timezone.utc).date().isoformat():
+                result["state"] = "installed_stale"
+                result["installation_state"] = "installed_stale"
+                result["active"]["stale"] = True
+                result["active"]["source_detail"] = "snapshot_reference_date_is_historical"
+        validation_failure = self._read_pointer("validation-failed.json")
+        if validation_failure:
+            result["last_validation_failure"] = validation_failure
+            if not active:
+                result["state"] = "validation_failed"
+                result["installation_state"] = "validation_failed"
+        return result
+
+    def fingerprint(self, *, include_acceptance: bool = False) -> dict[str, Any]:
+        state = self.status()
+        active = state.get("active")
+        if not active:
+            return {"source": SOURCE, "installation_state": state["installation_state"], "snapshot_sha256": None}
+        report = active.get("acceptance_report", {})
+        result = {"source": SOURCE, "installation_state": state["installation_state"],
+                  "snapshot_sha256": active.get("sha256"), "reference_date": active.get("reference_date"),
+                  "tables": active.get("row_counts", {}),
+                  "normalized_header_sets": report.get("normalized_headers", {}),
+                  "duty_expression_patterns": report.get("duty_expression_patterns", []),
+                  "semantic_sanity": active.get("semantic_sanity", {})}
         return result
 
     def query(self, goods_code: str, origin_country: str, assessment_date: str | None = None) -> dict[str, Any]:
@@ -604,6 +1024,12 @@ class OfficialTaricStore:
             measure["legal_basis"] = [x for x in legal if measure.get("regulation") and x.get("regulation") == measure.get("regulation")]
             measure["additional_code_details"] = related(additional)
             measure["additional_code_required"] = bool(measure.get("additional_code"))
+            expression = str(measure.get("duty_expression") or "")
+            measure["duty_expression_support"] = (
+                "supported" if SUPPORTED_DUTY_RE.fullmatch(expression) else
+                "preserved_but_not_calculable" if expression else "unsupported"
+            )
+            measure["calculation_status"] = "not_calculated" if measure["duty_expression_support"] == "supported" else "unsupported"
             measure["measure_type_description"] = next((row.get("description") or row.get("measure_category")
                 for row in measure_type_rows if row.get("measure_type") == measure.get("measure_type")), None)
             measure["measure_identifier"] = "taric:" + hashlib.sha256(json.dumps({

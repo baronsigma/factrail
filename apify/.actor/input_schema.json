@@ -1,15 +1,19 @@
 {
-  "title": "FACTRAIL evidence request",
-  "description": "Choose one supported FACTRAIL action. The nested input is checked against the canonical MCP tool schema before any request or paid event.",
+  "title": "FACTRAIL Evidence request (Public beta)",
+  "description": "Choose a supported action. French company verification is available today; trade/import assessment is Beta and may be partial or provisional. Inspect factrail_capabilities at the canonical MCP endpoint for deployed support.",
   "type": "object",
   "schemaVersion": 1,
   "properties": {
     "action": {
       "title": "Action",
       "type": "string",
-      "description": "Verify a French company, assess an import, or retrieve an evidence receipt.",
+      "description": "Verify a French company, request a Beta import assessment, or retrieve an Evidence receipt.",
       "editor": "select",
-      "enum": ["verify", "assess_import", "get_receipt"]
+      "enum": [
+        "verify",
+        "assess_import",
+        "get_receipt"
+      ]
     },
     "input": {
       "title": "FACTRAIL tool input",
@@ -18,6 +22,9 @@
       "editor": "json"
     }
   },
-  "required": ["action", "input"],
+  "required": [
+    "action",
+    "input"
+  ],
   "additionalProperties": false
 }

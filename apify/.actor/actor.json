@@ -1,8 +1,8 @@
 {
   "actorSpecification": 1,
   "name": "factrail-evidence",
-  "title": "FACTRAIL — Evidence for AI Agents",
-  "description": "Verify supported real-world facts and perform evidence-backed assessments with provenance, freshness, conflict handling, and reusable receipts.",
+  "title": "FACTRAIL \u2014 Evidence infrastructure for AI agents",
+  "description": "Structured, source-backed evidence for agents: French company verification, beta import assessment, provenance, and integrity-checkable receipts.",
   "version": "0.1",
   "buildTag": "latest",
   "defaultMemoryMbytes": 256,
@@ -13,5 +13,7 @@
   "readme": "./README.md",
   "input": "./input_schema.json",
   "output": "./output_schema.json",
-  "storages": {"dataset": "./dataset_schema.json"}
+  "storages": {
+    "dataset": "./dataset_schema.json"
+  }
 }

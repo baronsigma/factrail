@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import sqlite3
 import subprocess
 import sys
@@ -29,11 +30,10 @@ def _official_shaped_workbook(path: Path, *, corrupt: bool = False) -> Path:
             ws.append(row)
 
     sheet("Goods_Nomenclature", ["Goods code", "Hierarchy level", "Is leaf", "Validity start", "Validity end", "Description"], [
-        ["8508", "4", "0", "2020-01-01", "", "Test heading"],
-        ["850870", "6", "0", "2020-01-01", "", "Test subheading"],
-        ["85087000", "8", "0", "2020-01-01", "", "Test CN"],
-        ["8508700010", "10", "1", "2020-01-01", "", "Synthetic test leaf"],
-        ["8508700011", "10", "1", "2020-01-01", "", "Synthetic test sibling"],
+        ["850800000080", "4", "0", "2020-01-01", "", "Test heading"],
+        ["850870000080", "6", "0", "2020-01-01", "", "Test subheading"],
+        ["850870001080", "10", "1", "2020-01-01", "", "Synthetic test leaf"],
+        ["850870001180", "10", "1", "2020-01-01", "", "Synthetic test sibling"],
     ])
     sheet("Declarable_Codes", ["Nomenclature code", "Is leaf", "Validity start", "Validity end"], [
         ["850800000000", "0", "2020-01-01", ""], ["850870000000", "0", "2020-01-01", ""],
@@ -41,16 +41,16 @@ def _official_shaped_workbook(path: Path, *, corrupt: bool = False) -> Path:
         ["850870001180", "1", "2020-01-01", ""],
     ])
     sheet("Measures", ["Goods code", "Additional code", "Quota order number", "Validity start", "Validity end", "Geographical area", "Measure type", "Duty expression", "Regulation"], [
-        ["8508", "", "", "2020-01-01", "2030-12-31", "G1", "103", "4.5 %", "R-ACT-1"],
+        ["8508000000", "", "", "2020-01-01", "2030-12-31", "G1", "103", "4.5 %", "R-ACT-1"],
         ["8508700010", "", "", "2020-01-01", "2024-12-31", "G1", "103", "9 %", "OLD"],
         ["8508700010", "X123", "", "2020-01-01", "2030-12-31", "G1", "551", "60 EUR/tonne", "R-ACT-2"],
     ])
     sheet("Geographical_Areas", ["Area ID", "Description"], [["G1", "Synthetic test geography group"]])
     sheet("Geographical_Area_Membership", ["Parent area", "Country code", "Validity start", "Validity end"], [["G1", "CN", "2020-01-01", "2030-12-31"], ["G1", "US", "2020-01-01", "2030-12-31"]])
-    sheet("Measure_Exclusions", ["Goods code", "Measure type", "Geographical area", "Excluded area", "Validity start", "Validity end"], [["8508", "103", "G1", "CN", "2020-01-01", "2030-12-31"]])
+    sheet("Measure_Exclusions", ["Goods code", "Measure type", "Geographical area", "Excluded area", "Validity start", "Validity end"], [["8508000000", "103", "G1", "CN", "2020-01-01", "2030-12-31"]])
     sheet("Measure_Conditions", ["Goods code", "Measure type", "Geographical area", "Condition code", "Certificate code", "Duty amount", "Measurement unit", "Action"], [["8508700010", "551", "G1", "Y", "C001", "", "", "Submit certificate"]])
     sheet("Measure_Footnotes", ["Goods code", "Measure type", "Geographical area", "Footnote code"], [["8508700010", "551", "G1", "TN001"]])
-    sheet("Legal_Bases", ["Regulation", "Description"], [["R-ACT-1", "Synthetic legal reference"], ["R-ACT-2", "Synthetic additional measure reference"]])
+    sheet("Legal_Bases", ["Regulation", "Description"], [["R-ACT-1", "Synthetic legal reference"], ["R-ACT-2", "Synthetic additional measure reference"], ["OLD", "Synthetic expired legal reference"]])
     sheet("Additional_Codes", ["Additional code", "Description"], [["X123", "Synthetic additional code"]])
     sheet("Certificates", ["Certificate code", "Description"], [["C001", "Synthetic certificate requirement"]])
     sheet("Footnotes", ["Footnote code", "Description"], [["TN001", "Synthetic test footnote"]])
@@ -98,7 +98,11 @@ def test_directory_and_zip_packages_ingest_offline(tmp_path):
     store2 = OfficialTaricStore(tmp_path / "store2")
     second = store2.ingest(archive, reference_date="2025-06-01")
     assert first["active"]["row_counts"] == second["active"]["row_counts"]
-    assert first["active"]["sha256"] == second["active"]["sha256"]
+    assert second["active"]["sha256"] == hashlib.sha256(archive.read_bytes()).hexdigest()
+    assert first["active"]["sha256"] != second["active"]["sha256"]
+    archived = store2.status()["active"]["archived_source_files"]
+    assert archived[0]["original_name"] == archive.name
+    assert (store2.root / archived[0]["archived_path"]).is_file()
 
 
 def test_missing_required_tables_rejected_without_changing_active(tmp_path):
@@ -119,11 +123,11 @@ def test_partial_snapshot_is_explicit_and_scoped(tmp_path):
     wb = Workbook()
     ws = wb.active
     ws.title = "Goods_Nomenclature"
-    ws.append(["Goods code", "Hierarchy level", "Is leaf"])
-    ws.append(["0101", 4, 0])
+    ws.append(["Goods code", "Hierarchy level", "Validity start", "Validity end", "Description"])
+    ws.append(["010100000080", 4, "2020-01-01", "", "Synthetic partial heading"])
     ws = wb.create_sheet("Measures")
-    ws.append(["Goods code", "Measure type", "Duty expression"])
-    ws.append(["0101", "103", "4.5 %"])
+    ws.append(["Goods code", "Validity start", "Validity end", "Geographical area", "Measure type", "Duty expression"])
+    ws.append(["0101000000", "2020-01-01", "", "G1", "103", "4.5 %"])
     path = tmp_path / "partial.xlsx"
     wb.save(path)
     result = OfficialTaricStore(tmp_path / "store").ingest(path, reference_date="2025-06-01", partial=True)
@@ -159,7 +163,7 @@ def test_failed_activation_keeps_active_and_previous_good(tmp_path, monkeypatch)
 def test_failed_refresh_marks_last_good_stale(tmp_path):
     store, first = _snapshot(tmp_path)
     store.record_refresh_failure("snapshot_validation_failed", error_code="TaricSnapshotError")
-    assert store.status()["state"] == "stale"
+    assert store.status()["state"] == "installed_stale"
     assert store.status()["active"]["sha256"] == first["active"]["sha256"]
     result = store.query("8508700010", "CN", "2025-06-01")
     assert result["stale"] is True
@@ -217,7 +221,7 @@ def test_cli_ingest_and_status(tmp_path):
     assert payload["active"]["source"] == "EU_TARIC"
     status = subprocess.run([sys.executable, "-m", "factrail.trade.taric_sync", "status", "--store-dir", str(store_dir)], capture_output=True, text=True)
     assert status.returncode == 0
-    assert json.loads(status.stdout)["state"] == "ready"
+    assert json.loads(status.stdout)["state"] == "installed_stale"
 
 
 def test_official_store_does_not_claim_network_fetch(tmp_path):
@@ -257,6 +261,138 @@ def test_old_taric_cache_file_is_migrated_to_access2markets_identity(tmp_path):
         names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "access2markets_cache" in names
     assert store.lookup("850870", "CN", "FR")["measures"] == []
+
+
+def test_doctor_accepts_synthetic_commission_shaped_package_without_activation(tmp_path):
+    book = _official_shaped_workbook(tmp_path / "synthetic-test-only.xlsx")
+    store = OfficialTaricStore(tmp_path / "store")
+    report = store.doctor(book)
+    assert report["accepted"] is True
+    assert report["package_format"] == "xlsx"
+    assert report["row_counts"]["Measures"] == 3
+    assert report["files"][0]["sheets"]
+    assert report["files"][0]["sheets"][0]["headers"]
+    assert report["recognized_tables"]["Goods_Nomenclature"] == 4
+    assert report["snapshot_sha256"]
+    assert store.status()["installation_state"] == "not_installed"
+
+
+def test_doctor_reports_missing_tables_unknown_columns_and_missing_critical_headers(tmp_path):
+    book = _official_shaped_workbook(tmp_path / "unknown-column.xlsx")
+    from openpyxl import load_workbook
+    wb = load_workbook(book)
+    ws = wb["Goods_Nomenclature"]
+    ws.cell(row=1, column=ws.max_column + 1, value="Harmless future annotation")
+    wb.save(book)
+    wb.close()
+    report = OfficialTaricStore(tmp_path / "store").doctor(book)
+    assert report["accepted"] is True
+    assert "Harmless future annotation" in report["unknown_columns"]["Goods_Nomenclature"]
+    assert "Declarable_Codes" not in report["optional_tables"]["missing"]
+
+    sparse = Workbook()
+    ws = sparse.active
+    ws.title = "Goods_Nomenclature"
+    ws.append(["Goods code", "Description"])
+    ws.append(["0101000000", "Heading"])
+    bad = tmp_path / "missing-critical.xlsx"
+    sparse.save(bad)
+    missing = OfficialTaricStore(tmp_path / "store2").doctor(bad)
+    assert missing["accepted"] is False
+    assert "Measures" in missing["required_tables"]["missing"]
+    assert "Goods_Nomenclature" in missing["missing_critical_columns"]
+
+
+def test_compatible_aliases_are_reported_and_ambiguous_aliases_rejected(tmp_path):
+    book = _official_shaped_workbook(tmp_path / "aliases.xlsx")
+    report = OfficialTaricStore(tmp_path / "store").doctor(book, mode="compatible")
+    assert report["accepted"] is True
+    assert any("Goods code" in adaptation for adaptation in report["adaptations"])
+    strict = OfficialTaricStore(tmp_path / "store").doctor(book, mode="strict")
+    assert strict["accepted"] is False
+    assert any("Strict mode rejects" in error for error in strict["parse_errors"])
+
+    from openpyxl import load_workbook
+    wb = load_workbook(book)
+    wb["Measures"].cell(row=1, column=1, value="Geographical area id")
+    ambiguous_book = tmp_path / "ambiguous.xlsx"
+    wb.save(ambiguous_book)
+    wb.close()
+    ambiguous = OfficialTaricStore(tmp_path / "store2").doctor(ambiguous_book)
+    assert ambiguous["accepted"] is False
+    assert any("Ambiguous header" in error for error in ambiguous["parse_errors"])
+
+
+def test_malformed_rows_and_broken_foreign_references_reject_acceptance(tmp_path):
+    book = _official_shaped_workbook(tmp_path / "broken-reference.xlsx")
+    from openpyxl import load_workbook
+    wb = load_workbook(book)
+    wb["Measures"].cell(row=2, column=6, value="NO_SUCH_AREA")
+    wb["Measures"].cell(row=3, column=4, value="2031-01-01")
+    wb["Measures"].cell(row=3, column=5, value="2029-01-01")
+    bad = tmp_path / "broken-reference.xlsx"
+    wb.save(bad)
+    wb.close()
+    store = OfficialTaricStore(tmp_path / "store")
+    report = store.doctor(bad)
+    assert report["accepted"] is False
+    with pytest.raises(TaricSnapshotError):
+        store.ingest(bad, reference_date="2025-06-01")
+    assert store.status()["installation_state"] == "validation_failed"
+
+
+def test_duplicate_keys_and_unsupported_expression_are_reported(tmp_path):
+    book = _official_shaped_workbook(tmp_path / "duplicate-pattern.xlsx")
+    from openpyxl import load_workbook
+    wb = load_workbook(book)
+    ws = wb["Measures"]
+    ws.append([ws.cell(row=2, column=col).value for col in range(1, ws.max_column + 1)])
+    package = tmp_path / "duplicate-pattern.xlsx"
+    wb.save(package)
+    wb.close()
+    report = OfficialTaricStore(tmp_path / "store").doctor(package)
+    assert report["accepted"] is False
+    assert report["duplicate_key_issues"]
+
+    clean = _official_shaped_workbook(tmp_path / "expressions.xlsx")
+    expressions = OfficialTaricStore(tmp_path / "store2").doctor(clean)
+    assert any(item["classification"] == "preserved_but_not_calculable"
+               for item in expressions["duty_expression_patterns"])
+    assert expressions["statistics"]["preserved_not_calculable_patterns"] >= 1
+
+
+def test_acceptance_false_cannot_activate_and_previous_snapshot_survives(tmp_path):
+    store, first = _snapshot(tmp_path)
+    second = _official_shaped_workbook(tmp_path / "second.xlsx")
+    report = store.doctor(second)
+    report["accepted"] = False
+    with pytest.raises(TaricSnapshotError, match="rejected"):
+        store.ingest(second, reference_date="2025-07-01", acceptance_report=report)
+    assert store.status()["active"]["sha256"] == first["active"]["sha256"]
+    assert store.status()["last_good"]["sha256"] == first["active"]["sha256"]
+
+
+def test_fingerprint_is_stable_and_contains_no_rows(tmp_path):
+    store, _ = _snapshot(tmp_path)
+    first = store.fingerprint()
+    second = store.fingerprint()
+    assert first == second
+    assert first["snapshot_sha256"] == store.status()["active"]["sha256"]
+    assert first["tables"]["Measures"] == 3
+    assert "row_json" not in json.dumps(first)
+
+
+def test_capabilities_report_dynamic_taric_installation_state(tmp_path, monkeypatch):
+    from factrail.evidence.service import capability_registry
+    monkeypatch.setenv("FACTRAIL_TARIC_SNAPSHOT_DIR", str(tmp_path / "store"))
+    import factrail.evidence.service as service
+    service.OfficialTaricStore = OfficialTaricStore
+    trade = next(item for item in capability_registry() if item["capability"] == "import")
+    assert trade["official_taric"]["status"] == "not_installed"
+    book = _official_shaped_workbook(tmp_path / "current.xlsx")
+    OfficialTaricStore(tmp_path / "store").ingest(book, reference_date=datetime.now(timezone.utc).date().isoformat())
+    trade = next(item for item in capability_registry() if item["capability"] == "import")
+    assert trade["official_taric"]["status"] == "installed_current"
 
 
 def test_evidence_source_identity_and_receipt_metadata(tmp_path, monkeypatch):

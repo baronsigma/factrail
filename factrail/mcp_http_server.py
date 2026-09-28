@@ -1,4 +1,4 @@
-"""Factrail v2.4.0 — Production-ready remote MCP server (Streamable HTTP).
+"""FACTRAIL v2.4.0 public beta remote MCP server (Streamable HTTP).
 
 Aligned with MCP specification 2026-07-28:
 - POST /mcp: stateless JSON-RPC requests (no protocol sessions, no GET streams)
@@ -14,10 +14,8 @@ Aligned with MCP specification 2026-07-28:
 Backward compatibility: supports older protocol versions (2025-03-26, 2025-11-25)
 via SDK-negotiated fallback.
 
-Tools:
-  1. verify_french_company - Verify French companies via SIREN/SIRET
-  2. assess_import - EU import assessment with tariffs, VAT, compliance
-  3. analyze_company - Financial health and credit risk analysis
+Core MCP tools: factrail_capabilities, factrail_verify, factrail_assess,
+factrail_get_receipt. Domain-specific tools remain for compatibility.
 """
 
 from __future__ import annotations
@@ -167,7 +165,7 @@ async def handle_list_tools(
         tools=[
             types.Tool(
                 name="factrail_capabilities",
-                description="Discover registered verification and assessment capabilities, required inputs, fields, sources, and limitations.",
+                description="Discover available capabilities, inputs, fields, sources, versions, and limitations. Call first to inspect current coverage and source state.",
                 input_schema={"type": "object", "properties": {
                     "operation": {"type": "string", "enum": ["verify", "assess"]},
                     "capability": {"type": "string", "enum": ["company_fr", "import"]}}, "additionalProperties": False},
@@ -176,7 +174,7 @@ async def handle_list_tools(
             ),
             types.Tool(
                 name="factrail_assess",
-                description="Perform an evidence-backed structured assessment. Supports import scenarios and returns an EvidenceEnvelope with source coverage and a receipt.",
+                description="Assess a structured real-world situation and return an EvidenceEnvelope. Currently supports beta import assessments; results expose source coverage and support levels.",
                 input_schema={"type": "object", "properties": {
                     "assessment_type": {"type": "string", "enum": ["import"], "description": "Currently only import is supported."},
                     "parameters": {**AssessImportInput.model_json_schema(), "additionalProperties": False}},
@@ -186,7 +184,7 @@ async def handle_list_tools(
             ),
             types.Tool(
                 name="factrail_verify",
-                description="Establish evidence-backed facts about a supported subject. Supports French companies by SIREN or SIRET; returns facts, provenance, coverage, and a receipt.",
+                description="Verify structured facts for a supported subject. Currently supports French companies by SIREN or SIRET; returns Evidence with provenance, freshness, coverage, conflicts, and a receipt.",
                 input_schema={"type": "object", "properties": {
                     "subject_type": {"type": "string", "enum": ["company_fr"], "description": "Currently only French companies are supported."},
                     "identifier": {"type": "string", "pattern": "^([0-9]{9}|[0-9]{14})$", "description": "A 9-digit SIREN or 14-digit SIRET."},
@@ -197,7 +195,7 @@ async def handle_list_tools(
             ),
             types.Tool(
                 name="factrail_get_receipt",
-                description="Retrieve the immutable EvidenceEnvelope associated with a FACTRAIL receipt ID.",
+                description="Retrieve a stored EvidenceEnvelope by receipt ID. Recomputes its content hash and rejects altered content; this checks integrity, not truth.",
                 input_schema={"type": "object", "properties": {"receipt_id": {"type": "string", "pattern": "^fr_[0-9a-f]{64}$", "description": "A FACTRAIL evidence observation ID."}}, "required": ["receipt_id"], "additionalProperties": False},
                 output_schema=EvidenceEnvelope.model_json_schema(),
                 annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
@@ -205,10 +203,8 @@ async def handle_list_tools(
             types.Tool(
                 name="verify_french_company",
                 description=(
-                    "Verify a French company by SIREN (9-digit) or SIRET (14-digit). "
-                    "Returns structured verified data from INSEE Sirene (official company register) "
-                    "with BODACC company-event intelligence (legal notices, proceedings, filings). "
-                    "Legacy response shape; use factrail_verify for an EvidenceEnvelope."
+                    "Compatibility tool for French company lookup by SIREN/SIRET. "
+                    "New integrations should prefer factrail_verify for an EvidenceEnvelope."
                 ),
                 input_schema={
                     "type": "object",
@@ -230,9 +226,8 @@ async def handle_list_tools(
             types.Tool(
                 name="assess_import",
                 description=(
-                    "Legacy EU import assessment response with classification, duty, VAT, compliance, "
-                    "landed cost, and missing inputs. Use factrail_assess for an EvidenceEnvelope. "
-                    "Results are indicative and are not binding customs rulings."
+                    "Compatibility tool for beta EU import assessment. Coverage may be partial or provisional; "
+                    "this is not a binding customs result. New integrations should prefer factrail_assess."
                 ),
                 input_schema={
                     "type": "object",

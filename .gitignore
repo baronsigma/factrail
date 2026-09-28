@@ -33,6 +33,11 @@ htmlcov/
 logs/
 *.har
 request_dumps/
+# Official TARIC extracts and local acceptance/index artifacts are operator
+# supplied data and must never be committed with source code.
+taric-data/
+taric-snapshots/
+.factrail/taric_snapshots/
 *.pem
 *.key
 *.p12

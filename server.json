@@ -1,20 +1,20 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.baronsigma/factrail",
-  "title": "Factrail",
-  "description": "Evidence infrastructure for AI agents: structured verification, import assessment, and retrievable receipts.",
+  "title": "FACTRAIL",
+  "description": "Evidence infrastructure for agents: source-backed company verification and beta import assessment.",
   "version": "2.4.0",
   "remotes": [
     {
       "type": "streamable-http",
-      "description": "Production MCP server with company verification, import assessment, and company analysis",
+      "description": "Public beta Streamable HTTP MCP service. Discover capabilities first; French company verification is available and structured import assessment is Beta.",
       "url": "https://mcp.factrail.online/mcp"
     }
   ],
   "tools": [
     {
       "name": "factrail_verify",
-      "description": "Establish evidence-backed facts about a supported subject. Supports French companies by SIREN or SIRET; returns facts, provenance, coverage, and a receipt.",
+      "description": "Verify structured facts for a supported subject. Currently supports French companies by SIREN/SIRET; returns Evidence with provenance, freshness, coverage, conflicts, and a receipt.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -520,7 +520,7 @@
     },
     {
       "name": "factrail_assess",
-      "description": "Perform an evidence-backed structured assessment. Supports import scenarios and returns an EvidenceEnvelope with source coverage and a receipt.",
+      "description": "Assess a structured real-world situation. Currently supports Beta import assessments; results expose sources, support levels, coverage, and unresolved dependencies and may be provisional.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1239,7 +1239,7 @@
     },
     {
       "name": "factrail_get_receipt",
-      "description": "Retrieve the immutable EvidenceEnvelope associated with a FACTRAIL receipt ID.",
+      "description": "Retrieve a stored EvidenceEnvelope by receipt ID and verify content integrity. This does not prove the statement is universally true.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1716,7 +1716,7 @@
     },
     {
       "name": "verify_french_company",
-      "description": "Verify a French company by SIREN (9-digit) or SIRET (14-digit). Returns structured verified data from INSEE Sirene (official company register) with BODACC company-event intelligence (legal notices, proceedings, filings). Legacy response shape; use factrail_verify for an EvidenceEnvelope.",
+      "description": "Compatibility tool for French company lookup by SIREN/SIRET. New integrations should prefer factrail_verify.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1738,7 +1738,7 @@
     },
     {
       "name": "assess_import",
-      "description": "Legacy EU import assessment response with classification, duty, VAT, compliance, landed cost, and missing inputs. Use factrail_assess for an EvidenceEnvelope. Results are indicative and are not binding customs rulings.",
+      "description": "Compatibility tool for Beta EU import assessment; coverage may be partial or provisional. New integrations should prefer factrail_assess.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1833,7 +1833,7 @@
     },
     {
       "name": "analyze_company",
-      "description": "Deprecated experimental compatibility-only tool. Financial and credit data sources are unavailable; returned fields are null. Prefer factrail_verify for supported company facts.",
+      "description": "Experimental compatibility-only interface. Finance and credit sources are unavailable; missing values are not synthesized. Prefer factrail_verify for supported company facts.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -1861,7 +1861,7 @@
     },
     {
       "name": "factrail_capabilities",
-      "description": "Discover registered verification and assessment capabilities, required inputs, fields, sources, and limitations.",
+      "description": "Discover current capabilities, inputs, fields, sources, dynamic source state, and limitations. Call first.",
       "input_schema": {
         "type": "object",
         "properties": {

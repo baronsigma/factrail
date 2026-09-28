@@ -52,6 +52,8 @@ def assess(request: AssessmentRequest, repository: ReceiptRepository | None = No
 
 def capability_registry() -> list[dict]:
     """Public discovery metadata derived from the registered resolver maps."""
+    from factrail.trade.official_taric_store import OfficialTaricStore
+    official_taric_status = OfficialTaricStore().status().get("installation_state", "not_installed")
     from .company_fr import DEFAULT_FIELDS, FIELD_MAP
     company_fields = sorted(FIELD_MAP)
     company = {
@@ -79,7 +81,8 @@ def capability_registry() -> list[dict]:
         "input_schema": {"type": "object", "properties": {"assessment_type": {"const": "import"}, "parameters": assessment_schema}, "required": ["assessment_type", "parameters"], "additionalProperties": False},
         "required_inputs": assessment_required, "optional_inputs": assessment_optional, "fields": trade_fields,
         "sources": ["Official European Commission DG TAXUD TARIC snapshots (primary when installed locally)", "Access2Markets (secondary evidence only)", "curated FACTRAIL tariff references (explicit fallback)", "curated VAT reference data"],
-        "limitations": ["An official TARIC snapshot must be ingested locally; automatic CIRCABC acquisition is not available.", "Access2Markets is secondary and is never labelled official TARIC evidence.", "Snapshot reference dates may lag later changes; failed refreshes mark the last-good snapshot stale.", "Classification candidates can be provisional; official nomenclature data is used to check code precision only when a snapshot is installed.", "Preferences, measure conditions, and country-group applicability can remain unresolved in partial snapshots.", "Curated tariff rates and VAT are not authoritative customs or tax determinations."],
+        "official_taric": {"status": official_taric_status, "source": "EU_TARIC", "publisher": "European Commission DG TAXUD"},
+        "limitations": ["An official TARIC snapshot must be ingested locally; automatic CIRCABC acquisition is currently unavailable.", "Access2Markets is secondary and is never labelled official TARIC evidence.", "Snapshot reference dates may lag later changes; failed refreshes mark the last-good snapshot stale.", "Classification candidates can be provisional; official nomenclature data is used to check code precision only when a snapshot is installed.", "Preferences, measure conditions, and country-group applicability can remain unresolved in partial snapshots.", "Curated tariff rates and VAT are not authoritative customs or tax determinations."],
     }
     available = ([company] if "company_fr" in RESOLVERS else []) + ([trade] if "import" in ASSESSMENT_RESOLVERS else [])
     return available

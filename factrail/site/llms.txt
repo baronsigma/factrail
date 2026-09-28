@@ -1,40 +1,47 @@
 # FACTRAIL
 
-FACTRAIL is evidence infrastructure for AI agents. It exposes structured verification and assessment through MCP, with source provenance, coverage, freshness, conflicts, and retrievable receipts.
+FACTRAIL is evidence infrastructure for AI agents. It returns structured, source-backed real-world evidence with source identity, support level, freshness, coverage, conflicts, unresolved dependencies, and reusable receipts. Public beta.
 
-MCP endpoint (Streamable HTTP): https://mcp.factrail.online/mcp
-Website: https://factrail.online/
-Source and documentation: https://github.com/baronsigma/factrail
-Health: https://mcp.factrail.online/healthz
+## Connect
 
-## Strategic tools in the v2.4.0 source
+- MCP (Streamable HTTP): https://mcp.factrail.online/mcp
+- Website: https://factrail.online/
+- Health: https://mcp.factrail.online/healthz
+- Source and documentation: https://github.com/baronsigma/factrail
 
-- `factrail_verify`: verify a real-world fact about a supported subject. Current `subject_type`: `company_fr`. Supply a 9-digit SIREN or 14-digit SIRET as `identifier`; optional `fields` selects company fields such as `status`, `legal_name`, and `head_office`. Returns an EvidenceEnvelope.
-- `factrail_assess`: evaluate a structured real-world situation. Current `assessment_type`: `import`. `parameters` has the same required fields as `assess_import`: `product`, `origin_country`, `destination_country`, `quantity`, `goods_value`, and `currency`. Returns a stored EvidenceEnvelope with a receipt.
-- `factrail_get_receipt`: retrieve stored evidence by `receipt_id`; tampering returns an integrity error.
-- `factrail_capabilities`: discover supported operations, required and optional inputs, fields, sources, versions, and limitations.
+Call `factrail_capabilities` first. It describes current capabilities, inputs, fields, sources, versions, limitations, and dynamic source state. Hosted deployments may differ from repository source; inspect MCP `tools/list` and capability results.
 
-The hosted deployment can lag the source release. Inspect its live `tools/list` response before selecting a tool.
+## Core tools
 
-## Legacy-compatible tools
+- `factrail_capabilities`: discover actual supported operations and source state.
+- `factrail_verify`: verify structured facts; current capability is `company_fr`, using French SIREN/SIRET identifiers.
+- `factrail_assess`: assess structured situations; current `import` capability is **Beta** and may be partial or provisional.
+- `factrail_get_receipt`: retrieve a previously generated EvidenceEnvelope by `receipt_id`; canonical content hash is recomputed and altered content is rejected.
 
-- `verify_french_company`: existing INSEE Sirene and BODACC company response.
-- `assess_import`: existing indicative EU import response with classification, customs, VAT, compliance, and landed cost. It is not a binding customs ruling.
-- `analyze_company`: deprecated compatibility-only interface. Financial and credit sources are unavailable; those values are null.
+Legacy tools remain callable: `verify_french_company`, `assess_import`, and experimental/compatibility-only `analyze_company`. New integrations should use the generic tools above. `analyze_company` does not synthesize unavailable finance or credit fields.
+
+## Current capability coverage
+
+`company_fr` is the strongest current capability. It uses INSEE / Sirene and BODACC public/official records; field availability depends on those records. INSEE/Sirene has priority for current company status and legal name. Lower-priority evidence and conflicts remain visible. This supports company and KYB workflows; it is not a legally sufficient KYC/KYB system by itself.
+
+`import` is Beta. Inputs, source evidence, classification candidates, and deterministic calculations are distinguished. Curated/provisional dependencies produce provisional derived results. FACTRAIL has official TARIC snapshot ingestion infrastructure, but **no genuine European Commission TARIC snapshot is currently installed** (`not_installed`). Access2Markets is secondary evidence and curated tariff values are provisional. There is no authoritative EU Member-State VAT integration or complete authoritative landed-cost chain. TARIC fetch is unavailable; operator-supplied official files can be diagnosed and ingested offline. See the repository TARIC operator guide.
 
 ## Evidence semantics
 
-EvidenceEnvelope contract version is `1.2`, separate from the FACTRAIL package version. Facts cite evidence record IDs and declare support (`authoritative`, `supported`, `derived_supported`, `derived_provisional`, `curated`, or `caller_input`). Derived facts identify method/version and provisional inputs; caller input is not externally verified. FACTRAIL does not fabricate unavailable facts. Schema: `schemas/evidence-envelope-1.2.schema.json`. `coverage` lists resolved and unresolved fields; unknown remains unknown. `freshness` records when supporting data was retrieved. `conflicts` preserves competing source assertions. Historical BODACC notices do not determine current registration status. Derived Trade calculations are labeled separately from external source facts.
+EvidenceEnvelope includes schema version, status, subject, facts, evidence sources, conflicts, coverage, freshness, receipt ID, and generation time. Statuses can include `supported`, `contradicted`, `insufficient_evidence`, `stale`, and `conflicting_sources`; outcomes are not reduced to a boolean.
 
-`receipt_id` identifies the evidence observation. `state_fingerprint` identifies the substantive factual state across observations. Both are deterministic; the receipt can be retrieved later.
+Support levels include `authoritative`, `supported`, `derived_supported`, `derived_provisional`, `curated`, and `caller_input`. Caller-provided data is not externally verified. Deterministic results inherit the quality of their dependencies. A source success, partial response, source error/unavailability, source not integrated, disabled lookup, and not-required check are distinct. Missing user input is distinct from unsupported scope and upstream failure. Unknown is better than invented.
 
-## Current scope
+Receipts are content-addressed and integrity-checked. They are not blockchain records, digital signatures, immutable global ledger entries, or proof that a statement is universally true.
 
-Verification: French companies and establishments by SIREN/SIRET.
-Assessment: structured imports into EU destinations, with France best supported. Curated tariff fallback and unavailable source checks are explicit.
+## Source hierarchy
 
-## Official EU TARIC snapshot foundation
+- French current company facts: INSEE / Sirene is authoritative for current status and current legal name; BODACC is publication/event evidence and is retained without overriding current registry data.
+- Official customs data: a validated, installed European Commission TARIC snapshot is authoritative for its covered data. None is installed today.
+- Access2Markets: secondary/supporting evidence, never authoritative TARIC.
+- FACTRAIL tariff/VAT references: curated or provisional as identified in Evidence.
+- Caller input: input, not external evidence.
 
-FACTRAIL can ingest official Commission TARIC Excel snapshots from a directory, ZIP, or workbook using `python3 -m factrail.trade.taric_sync ingest PATH --reference-date YYYY-MM-DD`. Status is available with `python3 -m factrail.trade.taric_sync status`. Ingestion validates table scope, hashes inputs, builds an indexed SQLite snapshot, and atomically activates it. Failed refreshes retain and mark last-good data stale. Official TARIC snapshots are primary customs data when installed; Access2Markets is secondary; curated FACTRAIL data is provisional fallback. No snapshot is bundled, automatic fetch is currently unavailable, and daily delta application is deferred. TARIC is not binding legislation; legal references are preserved. See the Commission [TARIC page](https://taxation-customs.ec.europa.eu/online-services/online-services-and-databases-customs/eu-customs-tariff-taric_en) and [extraction guide](https://circabc.europa.eu/sd/a/3d892b27-176f-4b8c-bbf5-4e0ee63f7e5a/Explanation%20for%20the%20Taric%20database%20extractions.pdf).
+## Not currently provided
 
-FACTRAIL does not support arbitrary natural-language claims, general web search, generic URL fetching, sanctions verification, beneficial ownership, watches, or other unlisted domains. Use `tools/list` for the deployed surface.
+No arbitrary natural-language fact checking, general web search or URL fetching, news verification, complete global company verification, dedicated beneficial ownership/sanctions/EORI resolver, authoritative installed EU TARIC data, authoritative EU VAT integration, complete authoritative landed-cost chain, arbitrary regulatory verification, signed receipts, blockchain/immutable global ledger, continuous watches, or general-purpose LLM reasoning over unknown claims.

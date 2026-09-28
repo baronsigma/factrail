@@ -1,14 +1,14 @@
 # FACTRAIL
 
-**FACTRAIL is evidence infrastructure for AI agents.**
+**Evidence infrastructure for AI agents.**
 
-Agents routinely need facts that can change: a company's registration status, a tariff rate, or the information needed to assess an import. FACTRAIL gives them structured answers with source references, coverage, freshness, and receipts they can retrieve later.
+FACTRAIL gives agents structured, source-backed real-world evidence with provenance, freshness, conflicts, support levels, coverage, unresolved dependencies, and reusable receipts. It is a public beta: capabilities are defined and inspectable, and unsupported scope or failed sources are represented explicitly.
 
-FACTRAIL is a Python [Model Context Protocol](https://modelcontextprotocol.io/) server. This repository contains the v2.4.0 source, tests, and the public site. The hosted service may run a different release; check its live `tools/list` response before relying on a tool being deployed.
+FACTRAIL is a Python [Model Context Protocol](https://modelcontextprotocol.io/) server. This repository contains package version 2.4.0, the Evidence Contract, tests, operator tooling, and the static site. Hosted deployments may run a different release; inspect the live `tools/list` and `factrail_capabilities` results before relying on deployed capabilities.
 
-## Connect to the hosted service
+## Connect via MCP
 
-MCP endpoint: **`https://mcp.factrail.online/mcp`** (Streamable HTTP)
+Endpoint: **`https://mcp.factrail.online/mcp`** (Streamable HTTP)
 
 ```json
 {
@@ -20,86 +20,110 @@ MCP endpoint: **`https://mcp.factrail.online/mcp`** (Streamable HTTP)
 }
 ```
 
-Client configuration varies. The endpoint's `tools/list` response is the source of truth for deployed capabilities. [Website](https://factrail.online/) · [Health endpoint](https://mcp.factrail.online/healthz)
+Client configuration varies. Website: [factrail.online](https://factrail.online/) · Health: [healthz](https://mcp.factrail.online/healthz).
 
-### MCP quickstart
+## Why FACTRAIL
 
-Call `factrail_verify` to check a French company:
+Agents should not have to choose between blindly trusting model output and rebuilding source verification from scratch. FACTRAIL provides an evidence layer between agents and real-world data sources. Instead of returning only an answer, it can return what was established, where it came from, how current it is, what remains unresolved, and a receipt another agent can inspect later.
 
-```json
-{"subject_type":"company_fr","identifier":"784671695","fields":["status","legal_name"]}
-```
+The principle is simple: **unknown is better than invented.** Caller input is not automatically verified. Derived values inherit the quality of their dependencies. Conflicts, stale data, and source failures remain visible. A capability exposes its limits programmatically.
 
-Call `factrail_assess` to evaluate an import scenario:
+## Core MCP tools
 
-```json
-{"assessment_type":"import","parameters":{"product":"750ml insulated stainless steel bottle","origin_country":"CN","destination_country":"FR","quantity":5,"goods_value":1000,"currency":"EUR","known_hs_code":"961700"}}
-```
-
-Use the returned `receipt_id` with `factrail_get_receipt`:
-
-```json
-{"receipt_id":"fr_<64 lowercase hex characters from a FACTRAIL response>"}
-```
-
-## What the v2.4 source provides
+New integrations should use the generic primitives:
 
 | Tool | Purpose |
 | --- | --- |
-| `factrail_verify` | Verify structured French company fields by SIREN or SIRET and return an EvidenceEnvelope. |
-| `factrail_assess` | Assess a structured EU import scenario with the existing Trade engine and return an EvidenceEnvelope. |
-| `factrail_get_receipt` | Retrieve a previously stored EvidenceEnvelope by receipt ID. |
-| `factrail_capabilities` | Discover registered operations, inputs, fields, sources, and limitations. |
-| `verify_french_company` | Existing INSEE Sirene and BODACC company response. |
-| `assess_import` | Existing classification, duty, VAT, compliance, and landed-cost response. |
-| `analyze_company` | Deprecated compatibility-only interface. Financial and credit sources are unavailable; values are null. |
+| `factrail_capabilities` | Discover available capability IDs, operations, versions, inputs, fields, sources, dynamic source state, and limitations. Call this first. |
+| `factrail_verify` | Verify structured facts for a supported subject. Currently supports `company_fr`. |
+| `factrail_assess` | Assess a structured real-world situation. Currently supports `import` (**Beta**). |
+| `factrail_get_receipt` | Retrieve a prior EvidenceEnvelope by receipt ID and check content integrity. |
 
-`factrail_capabilities` discovers what FACTRAIL currently supports. `factrail_verify` verifies structured real-world facts. `factrail_assess` evaluates a structured real-world situation. `factrail_get_receipt` retrieves reusable evidence. Legacy tools remain callable.
+Compatibility tools remain available: `verify_french_company`, `assess_import`, and experimental/compatibility-only `analyze_company`. New clients should prefer the generic tools. `analyze_company` does not synthesize unavailable finance, credit, rating, risk, recommendation, executive-count, or confidence values; unavailable fields remain null/unavailable.
 
-### Verify a French company
+## Available today: French company verification
+
+The `company_fr` capability is FACTRAIL's strongest current resolver. It verifies supported French company and establishment information by SIREN or SIRET using INSEE / Sirene and BODACC records. Depending on source records, fields can include identifiers, legal and trade names, status, legal form, NAF/activity code, head office, creation/cessation dates, diffusion status, and BODACC events. No field is guaranteed to exist for every entity.
+
+For current company status and current legal name, INSEE/Sirene current registry data takes precedence over BODACC publication evidence. Lower-priority evidence is retained rather than silently discarded. This can support supplier verification, vendor onboarding, procurement, CRM enrichment, marketplace onboarding, and company/KYB-support workflows. FACTRAIL alone is not a legally sufficient KYC/KYB compliance system.
+
+Example input to `factrail_verify` (replace the placeholder with an identifier you are authorized to check):
 
 ```json
 {
   "subject_type": "company_fr",
-  "identifier": "784671695",
+  "identifier": "<9-digit SIREN or 14-digit SIRET>",
   "fields": ["status", "legal_name", "head_office"]
 }
 ```
 
-Call `factrail_verify` with that input. The company resolver uses the existing INSEE Sirene and BODACC pipeline. Historical notices remain historical; they do not silently change the current INSEE status.
+The actual source response depends on the requested identifier, source availability, and record coverage. FACTRAIL does not fabricate a sample result here.
 
-### Assess an import
+## Beta: trade and import assessment
 
-```json
-{
-  "assessment_type": "import",
-  "parameters": {
-    "product": "750ml insulated stainless steel bottle",
-    "origin_country": "CN",
-    "destination_country": "FR",
-    "quantity": 5,
-    "goods_value": 1000,
-    "currency": "EUR",
-    "known_hs_code": "961700"
-  }
-}
-```
+`factrail_assess` currently supports `assessment_type="import"`. It accepts structured concepts such as origin, destination, product description, classification or known HS/customs code, goods value, quantity, customs/VAT references, compliance inputs, and freight/insurance values. The result separates caller input, source evidence, classification candidates, and deterministic calculations. Coverage can be partial or provisional.
 
-Call `factrail_assess` with that input. `parameters` accepts the same fields as [`assess_import`](factrail/trade/models.py). The assessment identifies caller inputs, source data, inferred classifications, and derived calculations separately. A curated tariff fallback is marked as such; it is not a live authoritative tariff lookup. Classification and cost estimates are indicative and require review before a customs filing.
+There is no authoritative EU Member-State VAT integration or complete authoritative landed-cost chain. Curated VAT and tariff values stay marked curated/provisional; derived calculations inherit dependency quality (`derived_provisional` when their inputs are provisional). Trade assessment is not a binding customs ruling and classification candidates are not definitive customs classification.
 
-Tariff `source_outcome` reports whether an operation ran (`success`, `partial`, `source_error`, `source_unavailable`, `source_not_integrated`, `lookup_disabled`, or `not_required`). `source_detail` further distinguishes a complete response, an explicit no-measures response, an incomplete response, an unusable parser result, a parser/upstream error, and stale cached data after a failed refresh. An empty parser result is never represented as authoritative confirmation that no measure applies.
+### Official EU TARIC status
+
+FACTRAIL has infrastructure for validated official European Commission TARIC snapshot ingestion: offline package doctor, strict/compatible parsing, acceptance reporting, hashes/fingerprints, semantic checks, normalized SQLite index, atomic activation, and last-good/stale handling. **No genuine Commission TARIC snapshot is currently installed** (`not_installed`). FACTRAIL does not currently serve authoritative live TARIC tariff coverage.
+
+Access2Markets is secondary/supporting evidence, never authoritative TARIC. Curated FACTRAIL tariff references are provisional. No stable official automatic-download endpoint was confirmed, so automatic fetch is unavailable at this time. Operator-supplied official files can be diagnosed and ingested offline; monthly snapshot ingestion is supported, while daily-delta application is deferred.
+
+For operator procedures see [TARIC snapshot acceptance and operations](docs/taric-v2.4b-operator.md) and the [distribution discovery notes](docs/taric-v2.4a-discovery.md). Detailed tariff calculation is outside the current TARIC snapshot foundation.
 
 ## Evidence Contract
 
-An EvidenceEnvelope v1.2 has `schema_version`, `status`, `subject`, `facts`, `evidence`, `conflicts`, `coverage`, `freshness`, `receipt_id`, `state_fingerprint`, and `generated_at`. The published JSON Schema is [`schemas/evidence-envelope-1.2.schema.json`](schemas/evidence-envelope-1.2.schema.json).
+The canonical `EvidenceEnvelope` includes `schema_version`, status, subject, facts, evidence sources, conflicts, coverage, freshness, `receipt_id`, and `generated_at`. The current schema is [EvidenceEnvelope 1.2](schemas/evidence-envelope-1.2.schema.json); it is independent of the package version.
 
-- **Facts** cite evidence record IDs and expose support levels: `authoritative`, `supported`, `derived_supported`, `derived_provisional`, `curated`, or `caller_input`. Caller input is never represented as externally verified. Derived facts carry method/version, input fields, and provisional inputs.
-- **Evidence** identifies the source, authority class, retrieval time, source status, and URL when one exists. Caller input and internal calculations are labeled as such.
-- **Coverage** lists requested, resolved, and unresolved fields. Missing information stays unknown.
-- **Freshness** records observation times and stale status. A historical publication is not treated as a current state assertion.
-- **Conflicts** preserve competing values and their sources. Field-specific authority policies can record a deterministic resolution; absent a decisive policy, the result reports conflicting sources.
+- **Status** can be `supported`, `contradicted`, `insufficient_evidence`, `stale`, or `conflicting_sources`; results are not reduced to a boolean.
+- **Support levels** describe evidence quality: `authoritative`, `supported`, `derived_supported`, `derived_provisional`, `curated`, and `caller_input`. Caller input is not externally verified.
+- **Coverage** distinguishes requested, resolved, and unresolved fields. Missing input, unsupported fields, and unavailable sources are different states.
+- **Freshness** records observation times and stale status.
+- **Conflicts** preserve competing source assertions; field-specific authority policy may resolve a conflict without deleting its lower-priority evidence.
+- **Source outcomes** distinguish success, partial response, source error/unavailable, source not integrated, disabled lookup, and not required.
 
-A `receipt_id` (`fr_…`) identifies one evidence observation. Source retrieval times participate in its SHA-256 hash. A `state_fingerprint` (`fs_…`) identifies the substantive state across observations; it excludes retrieval time, receipt ID, evidence IDs, and ordering. Both are deterministic. Receipts live in SQLite and can be fetched with `factrail_get_receipt`. [Hash and migration details](docs/evidence-core.md).
+A deterministic calculation does not become authoritative merely because its arithmetic is deterministic. Authoritative inputs may support a `derived_supported` result; provisional inputs produce `derived_provisional` results.
+
+## Receipts
+
+A receipt ID (`fr_…`) is content-addressed using deterministic canonical hashing. On retrieval, FACTRAIL recomputes the hash and rejects altered content with an integrity error. Supported historical canonicalization remains available. Receipts make an evidence observation reusable and traceable; they provide **content integrity**, not a digital signature, blockchain record, immutable global ledger entry, or proof that a statement is universally true. The `state_fingerprint` identifies substantive state across observations. See [Evidence Core design](docs/evidence-core.md).
+
+## Sources and trust principles
+
+FACTRAIL's source hierarchy is explicit: official records may be authoritative for defined fields, secondary sources remain secondary, curated references remain curated, and caller input remains input. Source identity, retrieval time, content hashes where available, support level, and source status accompany evidence. Historical publication evidence does not automatically determine current state.
+
+FACTRAIL follows these principles:
+
+1. Never manufacture evidence; unknown is better than invented.
+2. Caller input is not automatically verified.
+3. Derived values inherit the support quality of their dependencies.
+4. Conflicting sources remain visible.
+5. Source failures and stale evidence are explicit.
+6. Secondary evidence is not silently promoted to authoritative.
+7. Receipts protect content integrity, not philosophical truth.
+8. Capability limits are exposed programmatically.
+
+## Quick start: discover, verify, retrieve
+
+Use `factrail_capabilities` first with `{}`. The live result identifies currently supported capability IDs and dynamic source state. Then a company verification call uses:
+
+```json
+{
+  "subject_type": "company_fr",
+  "identifier": "<SIREN or SIRET>",
+  "fields": ["status", "legal_name"]
+}
+```
+
+To retrieve the result later, pass its actual `receipt_id`:
+
+```json
+{"receipt_id":"<receipt_id returned by FACTRAIL>"}
+```
+
+MCP tool calls wrap these argument objects in their normal client protocol. See [request examples](docs/examples.md) for generic verify, receipt, and import inputs. Examples use placeholders and do not assert fabricated output.
 
 ## Run locally
 
@@ -114,37 +138,17 @@ cp .env.example .env
 python3 -m factrail.mcp_http_server
 ```
 
-The HTTP server defaults to port 8765. Use `FACTRAIL_HOST` and `FACTRAIL_PORT` to change its bind address and port. The MCP endpoint is `POST http://localhost:8765/mcp`; health is at `/healthz`. For stdio clients, run `python3 -m factrail.mcp_server`.
+HTTP defaults to port 8765. Use `FACTRAIL_HOST` and `FACTRAIL_PORT` to change the bind address and port. Local MCP endpoint: `POST http://localhost:8765/mcp`; health endpoint: `/healthz`. For stdio clients, run `python3 -m factrail.mcp_server`.
 
-The INSEE key is available through the [INSEE API portal](https://portail-api.insee.fr/). The default SQLite path is `/tmp/factrail_cache.db`; set `FACTRAIL_CACHE_PATH` to a persistent location for durable receipts. The server also has per-client rate limiting and stale cache fallback for company lookups.
+Get an INSEE key through the [INSEE API portal](https://portail-api.insee.fr/). Default SQLite cache is `/tmp/factrail_cache.db`; set `FACTRAIL_CACHE_PATH` to a persistent path for durable receipts. The server includes per-client rate limiting and stale cache fallback for company lookups.
 
-## Sources and scope
+## Current limitations
 
-- **French companies:** INSEE Sirene registry data and BODACC legal notices.
-- **EU imports:** the existing Trade engine, curated tariff references, VAT references, and explicit unavailable-source markers. France is the best-supported destination. Some live tariff and market-access adapters are not yet integrated.
+FACTRAIL does not currently provide arbitrary natural-language fact checking, general web search or URL fetching, news verification, broad global company verification, dedicated beneficial ownership/sanctions/EORI resolvers, authoritative installed EU TARIC data, authoritative EU VAT integration, complete authoritative landed-cost results, arbitrary regulatory verification, signed receipts, blockchain receipts, global immutable evidence ledgers, continuous evidence watches, or general-purpose LLM reasoning over unknown claims.
 
-### Official EU TARIC snapshot foundation
+## Deployment and development
 
-The Commission identifies TARIC as the integrated EU customs tariff database and states that raw data is freely downloadable in Excel. FACTRAIL treats a supplied, validated Commission snapshot as the primary customs data source. TARIC is a customs data product, not legislation; preserved legal references point to the applicable legal acts, and the Official Journal remains the binding publication. [Commission TARIC page](https://taxation-customs.ec.europa.eu/online-services/online-services-and-databases-customs/eu-customs-tariff-taric_en) · [Commission extraction guide](https://circabc.europa.eu/sd/a/3d892b27-176f-4b8c-bbf5-4e0ee63f7e5a/Explanation%20for%20the%20Taric%20database%20extractions.pdf).
-
-Access2Markets remains a secondary source and cross-check. Its cached HTML is explicitly named and identified as Access2Markets; it is never labelled official TARIC evidence. Curated FACTRAIL tariff values remain an explicit provisional fallback. An official snapshot is not bundled or installed by default, so official TARIC evidence is reported unavailable until an operator ingests Commission files.
-
-The current official page links to the public CIRCABC group, but the linked group route and the cited library-item route returned HTTP 404 in this discovery check. The data.europa.eu catalog exposes only the CIRCABC group URL, not a direct file URL or manifest. An anonymous CIRCABC REST node lookup returned 401. Therefore `fetch` is deliberately reported unavailable; automatic acquisition is not fabricated. Manual file ingestion and local indexed lookup do not use the network. Daily-update delta application is deferred to v2.4B.
-
-Import the monthly Commission Excel package or a ZIP/directory containing its workbooks:
-
-```bash
-python3 -m factrail.trade.taric_sync ingest /path/to/taric-snapshot.zip --reference-date YYYY-MM-DD
-python3 -m factrail.trade.taric_sync status
-```
-
-Full ingestion validates nomenclature, declarable codes, import measures, geographical descriptions and membership, exclusions, conditions, measure footnotes, legal bases, additional codes, certificates, footnotes, and relevant TARIC business-code tables. `--partial` is an explicit reduced-scope option; results remain marked partial. The importer computes per-file and package SHA-256 hashes, builds an indexed SQLite database, validates it, and atomically switches the active pointer. A failed refresh keeps the active database and marks it stale. `FACTRAIL_TARIC_SNAPSHOT_DIR` selects the local store directory. Synthetic Excel fixtures in tests are test-only and are never loaded as production tariff evidence.
-
-The first query returns raw measure expressions and linked applicability details for `(goods_code, origin_country, assessment_date)`, including parent-code measures. It checks official nomenclature and declarable-code records; code width alone does not establish a valid customs code. Access2Markets and curated rates cannot upgrade missing official snapshot evidence. No duty calculation or final landed-cost claim is made from this snapshot foundation.
-
-FACTRAIL does not perform general web search or natural-language claim verification. The Evidence Core currently has one verification resolver (`company_fr`) and one assessment type (`import`).
-
-## Development
+For operators, see the [deployment checklist](docs/deployment-checklist.md), [TARIC acceptance guide](docs/taric-v2.4b-operator.md), and [distribution notes](DISTRIBUTION.md). Release history: [CHANGELOG](CHANGELOG.md). The static site is in `site/` and needs no build step.
 
 ```bash
 python3 -m pytest -q
@@ -152,12 +156,19 @@ python3 -m compileall -q factrail tests
 python3 -m factrail.evidence.demand --days 7
 ```
 
-The offline suite uses mocks and fixtures. Live tests use the project's `--live` convention and require external access. The private demand report aggregates capability gaps without storing identifiers, company names, product descriptions, prompts, or full request payloads. [Evidence Core design](docs/evidence-core.md).
+The offline suite uses mocks and fixtures; live tests follow the project's `--live` convention and require external access. Demand telemetry stores normalized categories and linkage, not raw IP addresses, full User-Agent strings, request arguments, authorization headers, or full Evidence envelopes. It helps identify requested capabilities and evidence gaps.
 
-For operators: [deployment checklist](docs/deployment-checklist.md). Release history: [changelog](CHANGELOG.md).
+The [Apify Actor wrapper](apify/README.md) is a thin distribution/payment channel for the canonical MCP service; it does not change FACTRAIL's source adapters or evidence behavior.
 
-An isolated [Apify Actor wrapper](apify/README.md) is prepared as a distribution and payment channel. It calls this canonical MCP service and does not change the FACTRAIL backend or the direct MCP endpoint.
+## Public discovery surfaces
+
+- [Website](https://factrail.online/)
+- [Agent guidance](site/llms.txt)
+- [Apify listing copy](docs/public-listings/apify.md)
+- [Glama listing copy](docs/public-listings/glama.md)
+- [Smithery listing copy](docs/public-listings/smithery.md)
+- [GitHub metadata](docs/public-listings/github.md)
 
 ## License
 
-The code and documentation in this repository are licensed under [Apache License 2.0](LICENSE). Source data remains subject to its publishers' terms, including the INSEE and BODACC open-data licenses.
+Code and documentation are licensed under [Apache License 2.0](LICENSE). Source data remains subject to publisher terms, including INSEE and BODACC open-data licenses.

@@ -1,18 +1,35 @@
 {
-  "title": "FACTRAIL — Evidence for AI Agents",
-  "short_description": "Verify supported real-world facts and perform evidence-backed assessments with provenance, freshness, conflict handling, and reusable receipts.",
-  "category_candidates_for_console": ["AI", "Business"],
+  "title": "FACTRAIL — Evidence infrastructure for AI agents",
+  "short_description": "Structured, source-backed evidence for agents: French company verification, beta import assessment, provenance, and integrity-checkable receipts.",
+  "category_candidates_for_console": ["AI", "Business", "Developer tools"],
   "keywords": [
-    "AI agents",
     "MCP",
-    "evidence verification",
-    "French company verification",
-    "import assessment",
+    "AI agents",
+    "evidence infrastructure",
     "provenance",
-    "customs"
+    "French company verification",
+    "company data",
+    "beta import assessment",
+    "evidence receipts"
   ],
   "canonical_mcp": "https://mcp.factrail.online/mcp",
   "source_repository": "https://github.com/baronsigma/factrail",
-  "scope": "French company verification, structured import assessment, evidence receipt retrieval",
-  "excluded_from_store_claims": ["generic fact checking", "sanctions", "beneficial ownership", "web search", "analyze_company"]
+  "scope": "Capability discovery, French company verification (company_fr), beta structured import assessment (import), and Evidence receipt retrieval.",
+  "limitations": [
+    "Public beta; inspect factrail_capabilities for actual deployment support.",
+    "Trade/import assessment is beta and may be partial or provisional.",
+    "No genuine Commission TARIC snapshot is currently installed; Access2Markets is secondary.",
+    "No authoritative EU VAT integration or complete authoritative landed-cost chain.",
+    "Receipts provide content integrity, not signatures, blockchain records, or proof of universal truth."
+  ],
+  "excluded_from_store_claims": [
+    "generic natural-language fact checking",
+    "general web search",
+    "sanctions",
+    "beneficial ownership",
+    "authoritative installed TARIC",
+    "authoritative EU VAT",
+    "blockchain receipts",
+    "analyze_company as a mature capability"
+  ]
 }

@@ -1,4 +1,4 @@
-"""MCP server exposing the verify_french_company tool."""
+"""FACTRAIL stdio MCP server with Evidence Core and compatibility tools."""
 
 from __future__ import annotations
 
@@ -33,9 +33,7 @@ async def handle_list_tools(
         tools=[
             types.Tool(
                 name="verify_french_company",
-                description="Verify a French company by SIREN or SIRET. "
-                "Returns structured verified data from INSEE Sirene with "
-                "BODACC company-event intelligence. Legacy response shape; prefer factrail_verify for the EvidenceEnvelope.",
+                description="Compatibility tool for French company lookup by SIREN/SIRET. New integrations should prefer factrail_verify for an EvidenceEnvelope.",
                 input_schema={
                     "type": "object",
                     "properties": {

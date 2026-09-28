@@ -1,78 +1,76 @@
-# FACTRAIL — Evidence for AI Agents
+# FACTRAIL — Evidence infrastructure for AI agents
 
-> Evidence infrastructure for AI agents.
+> Structured, source-backed real-world evidence with provenance, freshness, conflicts, coverage, and reusable receipts.
 
-This Actor is a thin distribution and payment client for the canonical FACTRAIL MCP at **https://mcp.factrail.online/mcp**. FACTRAIL's [source](https://github.com/baronsigma/factrail) and Evidence Core remain on the canonical service. The direct MCP channel remains available.
+This Actor is a thin distribution and billing client for the canonical FACTRAIL MCP at **https://mcp.factrail.online/mcp**. It does not implement the evidence resolvers. The source repository and Evidence Core remain at https://github.com/baronsigma/factrail; the direct MCP endpoint remains available.
 
-Agents can verify supported mutable facts, assess structured imports, and retrieve reusable evidence receipts. Facts identify supporting **sources** (provenance). **Coverage** shows what FACTRAIL could and could not establish. **Conflicts** preserve disagreements. **Freshness** gives observation time context. Each observation has an immutable `receipt_id`; a `state_fingerprint` identifies substantive state across repeat observations.
+FACTRAIL is in public beta. Agents should begin with `factrail_capabilities` on the canonical MCP service to discover current support, source state, and limitations; the Apify wrapper does not expose a capability-discovery action. The Actor exposes actions for `factrail_verify`, `factrail_assess`, and `factrail_get_receipt`.
 
-## Current scope
+## Current capabilities
 
-- **Verification:** French companies and establishments by SIREN or SIRET.
-- **Assessment:** structured import scenarios into EU destinations, with France best supported. Trade coverage can be partial when authoritative tariff data or other required information is unavailable.
-- **Receipts:** retrieve evidence previously produced by FACTRAIL.
+- **French company verification (`company_fr`):** supported facts for companies and establishments by SIREN/SIRET, using INSEE / Sirene and BODACC. Field availability depends on records; current registry evidence takes precedence for current status and legal name, while lower-priority evidence remains visible. Supports supplier, vendor, procurement, CRM, marketplace, and KYB-support workflows; FACTRAIL alone is not legally sufficient KYC/KYB.
+- **Trade/import assessment (`import`, Beta):** structured import assessment that distinguishes caller input, source evidence, classification candidates, and derived calculations. Results can be partial or provisional.
+- **Receipts:** retrieve a previously generated EvidenceEnvelope by receipt ID. Receipt content is content-addressed and integrity-checked; this does not attest universal truth.
 
-FACTRAIL does not verify arbitrary natural-language claims or provide general search, sanctions, global company coverage, or beneficial ownership checks. This Actor does not expose the experimental `analyze_company` tool.
+No genuine European Commission TARIC snapshot is currently installed. Official TARIC snapshot ingestion infrastructure exists for validated Commission files supplied by an operator. Access2Markets is secondary evidence, and curated tariff and VAT references are provisional. Authoritative EU VAT integration and a complete authoritative landed-cost chain are not available.
 
-## Actions
+## Example actions
 
-### Verify
+### Discover current capabilities
+
+```json
+{"action":"capabilities","input":{}}
+```
+
+The public Actor action schema does not currently include capability discovery; use the canonical MCP `factrail_capabilities` tool directly before relying on availability.
+
+### Verify a French company
 
 ```json
 {
   "action": "verify",
   "input": {
     "subject_type": "company_fr",
-    "identifier": "784671695",
+    "identifier": "<9-digit SIREN or 14-digit SIRET>",
     "fields": ["status", "legal_name"]
   }
 }
 ```
 
-### Assess an import
+### Assess an import (Beta)
 
 ```json
 {
   "action": "assess_import",
   "input": {
-    "product": "750ml insulated stainless steel bottle",
+    "product": "<product description>",
     "origin_country": "CN",
     "destination_country": "FR",
-    "quantity": 5,
-    "goods_value": 1000,
-    "currency": "EUR",
-    "known_hs_code": "961700"
+    "quantity": 1,
+    "goods_value": 100,
+    "currency": "EUR"
   }
 }
 ```
 
+The sample values are illustrative caller inputs. Assessment outputs can be partial/provisional and are not binding customs decisions.
+
 ### Retrieve a receipt
 
 ```json
-{
-  "action": "get_receipt",
-  "input": {"receipt_id": "fr_<64 lowercase hex characters from FACTRAIL>"}
-}
+{"action":"get_receipt","input":{"receipt_id":"<receipt_id returned by FACTRAIL>"}}
 ```
 
-The Actor returns `{ "action": "…", "result": <canonical EvidenceEnvelope> }`. It keeps all facts, evidence, conflicts, freshness, coverage, receipt and fingerprint fields. Paid results appear in the default dataset; free receipt and partial results appear as `OUTPUT` in the run's default key-value store. Errors also appear in `OUTPUT` with a structured code and no custom event charge.
+The Actor returns `{ "action": "…", "result": <canonical EvidenceEnvelope> }`. Read the receipt ID from a previous FACTRAIL result; no sample result is implied here.
 
-## Live pricing
+## Pricing
 
-This public Actor uses Pay Per Event with these active custom event prices:
-
-- **$0.005** for a successful, sufficiently covered company verification (`factrail-verify`).
-- **$0.03** for a sufficiently evidenced import assessment (`factrail-assess-import`).
-- **Free** receipt retrieval (`get_receipt`).
-
-Invalid, unsupported, stale, conflicting, insufficient, or degraded results do not trigger a FACTRAIL event. A partial import result caused by unavailable authoritative tariff data is free. One run performs one action and can emit at most one FACTRAIL event. The Actor's Pay per event + usage option is disabled; check Apify's Pricing tab for the charges that apply to your account and run.
+This public Actor uses Pay Per Event. Check the current Apify Pricing tab for live rates and account charges. The Actor should bill only configured qualifying outcomes; partial, unsupported, stale, conflicting, insufficient, and degraded outcomes follow the event rules in the deployed Actor configuration.
 
 ## Architecture and privacy
 
-The Actor calls only three public MCP tools: `factrail_verify`, `factrail_assess`, and `factrail_get_receipt`. It does not contain source adapters, authority rules, calculations, receipt hashing, or FACTRAIL credentials. It does not send Apify user IDs, payment IDs, or custom attribution headers to FACTRAIL. The Canonical service is also usable directly at **https://mcp.factrail.online/mcp**; Apify adds discovery, execution, and billing convenience.
+The Actor calls the canonical FACTRAIL MCP service and does not contain source adapters, authority rules, tariff calculations, receipt hashing, or FACTRAIL credentials. It does not intentionally send Apify user IDs, payment IDs, or custom attribution headers to FACTRAIL. Demand telemetry records normalized operation/outcome categories and does not intentionally store raw IP addresses, complete User-Agent strings, full arguments, authorization headers, or entire Evidence envelopes.
 
-The Actor's bundled schemas are a snapshot of the FACTRAIL 2.1.1 live MCP `tools/list`. If the backend changes its input schemas, update this snapshot before publishing a new Actor build.
+## Limits
 
-## Local development
-
-Install `requirements.txt`, then run tests from the FACTRAIL repository root with `python3 -m pytest -q apify/tests`. Local Apify PPE simulation uses `ACTOR_TEST_PAY_PER_EVENT=true`; its default $1 test price is **not** the configured production price. Real prices and agentic-payment eligibility require Apify Console verification.
+FACTRAIL does not provide arbitrary natural-language fact checking, general web search, complete global company verification, dedicated sanctions/beneficial ownership/EORI resolution, authoritative installed TARIC data, authoritative EU VAT integration, complete authoritative landed costs, signed receipts, or a blockchain ledger. Use `factrail_capabilities` and the live MCP tool list to confirm deployed support.

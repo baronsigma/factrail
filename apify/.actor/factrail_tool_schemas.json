@@ -3,7 +3,7 @@
     "additionalProperties": false,
     "properties": {
       "assessment_type": {
-        "description": "Currently only import is supported.",
+        "description": "Currently only Beta import assessment is supported; results may be partial or provisional.",
         "enum": [
           "import"
         ],
@@ -11,7 +11,7 @@
       },
       "parameters": {
         "additionalProperties": false,
-        "description": "Required + optional inputs for assess_import.",
+        "description": "Required and optional structured import inputs. No genuine official TARIC snapshot is currently installed and VAT inputs are not authoritative EU integration.",
         "properties": {
           "currency": {
             "examples": [
@@ -245,7 +245,7 @@
     "additionalProperties": false,
     "properties": {
       "receipt_id": {
-        "description": "A FACTRAIL evidence observation ID.",
+        "description": "Content-addressed FACTRAIL Evidence observation ID; retrieval checks content integrity.",
         "pattern": "^fr_[0-9a-f]{64}$",
         "type": "string"
       }

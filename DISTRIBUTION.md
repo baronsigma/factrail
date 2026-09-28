@@ -1,40 +1,16 @@
-# FACTRAIL listing copy
+# FACTRAIL listing copy and distribution notes
 
-## GitHub repository About
+Canonical positioning: **Evidence infrastructure for AI agents.** FACTRAIL is a public beta that returns structured, source-backed real-world evidence with provenance, freshness, support levels, coverage, conflicts, unresolved dependencies, and reusable content-integrity receipts.
 
-Suggested description: **Evidence infrastructure for AI agents. Verify French companies, assess EU imports, and retrieve source-linked receipts through MCP.**
+Current strongest capability: French company verification (`company_fr`) using INSEE/Sirene and BODACC. Trade/import assessment (`import`) is Beta and can be partial or provisional. Official TARIC snapshot ingestion infrastructure exists, but no genuine Commission snapshot is currently installed. Access2Markets remains secondary; VAT and curated tariffs are not authoritative integrations.
 
-Suggested website: `https://factrail.online/`
+The hosted deployment may lag repository source. Verify its live MCP `tools/list` and `factrail_capabilities` before changing any registry listing. Do not publish immutable registry versions as part of routine copy edits.
 
-Suggested topics: `mcp`, `ai-agents`, `evidence`, `verification`, `python`, `french-companies`, `international-trade`.
+Ready-to-paste material:
 
-The source repository includes v2.2.0 Evidence Core tools. Keep directory listings of the hosted service aligned with its live `tools/list` response; the hosted deployment may be behind the source release.
+- [GitHub](docs/public-listings/github.md)
+- [Apify](docs/public-listings/apify.md)
+- [Glama](docs/public-listings/glama.md)
+- [Smithery](docs/public-listings/smithery.md)
 
-Use the same core positioning across directories. Keep the umbrella description stable; update the **Available now** sentence only when a new tool is live and visible in MCP `tools/list`.
-
-## Name
-
-FACTRAIL
-
-## Short description
-
-Source-linked, structured facts for AI agents. Live tools verify French companies and assess EU imports, with provenance and explicit uncertainty.
-
-## Longer overview
-
-FACTRAIL connects AI agents to structured, source-linked information through one read-only MCP endpoint. Each data rail addresses a specific real-world question and makes evidence, time context, missing inputs and unavailable source checks clear. Today, agents can verify French companies by SIREN/SIRET using INSEE Sirene and published BODACC events, or request an indicative assessment of an import into the EU. France is the best-supported import destination in the early version. The live MCP tool list defines current coverage as new rails are added.
-
-## Current tool summary
-
-- `verify_french_company` — French company and establishment verification by SIREN/SIRET, with official registry data, published corporate notices and provenance.
-- `assess_import` — indicative pre-import assessment for an EU destination, including classification, duty, VAT, compliance, landed-cost and risk considerations. States missing information and unavailable checks. Not a binding customs decision.
-
-## Links
-
-- MCP: https://mcp.factrail.online/mcp
-- Docs: https://github.com/baronsigma/factrail
-- Website: https://factrail.online/
-
-## Update rule
-
-Do not list proposed financial, procurement, risk, regulatory or other tools as available until they have been deployed and independently observed in `tools/list`. New rails extend the available-tool summary; the core description does not need to change.
+Generic MCP tools to feature: `factrail_capabilities`, `factrail_verify`, `factrail_assess`, `factrail_get_receipt`. Compatibility tools remain callable; prefer the generic tools for new integrations. Keep the product description stable as new capability resolvers are added, and update capability coverage only after the functionality is actually exposed.

@@ -1,6 +1,6 @@
 # Apify publication checklist
 
-The Actor is a wrapper around `https://mcp.factrail.online/mcp`; publish it from the `apify/` directory. The backend version remains FACTRAIL 2.1.1.
+The Actor is a wrapper around `https://mcp.factrail.online/mcp`; publish it from the `apify/` directory. The Actor is a thin wrapper; its backend can be updated independently. Verify the live `tools/list` and `factrail_capabilities` response before publication. French company verification is available today; trade/import assessment is Beta. No genuine official TARIC snapshot is currently installed.
 
 1. Install the [Apify CLI](https://docs.apify.com/cli/docs/installation) if needed, then run `apify login` on the intended FACTRAIL account. From `apify/`, run `apify validate-schema` and `apify push`. The CLI creates the Actor privately if it does not already exist. Inspect its build and account before changing visibility.
 2. In Console, keep **Limited permissions** and **Standby off**. The Actor needs outbound HTTPS plus its own default dataset/key-value store and the PPE charging API. Do not mount backend credentials or request Full permissions.
