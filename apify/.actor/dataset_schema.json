@@ -6,9 +6,9 @@
       "action": {"type": "string", "enum": ["verify", "assess_import"]},
       "result": {
         "type": "object",
-        "description": "Unmodified FACTRAIL EvidenceEnvelope 1.1.",
+        "description": "Unmodified FACTRAIL EvidenceEnvelope 1.x (1.1 or later, e.g. 1.2).",
         "properties": {
-          "schema_version": {"type": "string", "const": "1.1"},
+          "schema_version": {"type": "string", "pattern": "^1\\.([1-9]|[1-9][0-9]+)$"},
           "status": {"type": "string", "enum": ["supported", "contradicted", "insufficient_evidence", "stale", "conflicting_sources"]},
           "subject": {"type": "object"},
           "facts": {"type": "array"},

@@ -14,7 +14,7 @@
   ],
   "canonical_mcp": "https://mcp.factrail.online/mcp",
   "source_repository": "https://github.com/baronsigma/factrail",
-  "scope": "Capability discovery, French company verification (company_fr), beta structured import assessment (import), and Evidence receipt retrieval.",
+  "scope": "French company verification (company_fr), beta structured import assessment (import), and Evidence receipt retrieval. Capability discovery (factrail_capabilities) is available on the canonical MCP endpoint, not as an Actor action.",
   "limitations": [
     "Public beta; inspect factrail_capabilities for actual deployment support.",
     "Trade/import assessment is beta and may be partial or provisional.",

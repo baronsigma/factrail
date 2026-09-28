@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 
 RECEIPT = re.compile(r'fr_[0-9a-f]{64}\Z')
+# EvidenceEnvelope 1.x from 1.1 onward (1.2 adds per-fact support_level; same billing fields).
+SCHEMA_VERSION = re.compile(r'1\.(?:[1-9]|[1-9][0-9]+)\Z')
 EVENTS = {'verify': 'factrail-verify', 'assess_import': 'factrail-assess-import'}
 
 
@@ -13,7 +15,8 @@ def billable_event(action: str, envelope: object) -> str | None:
     receipt = envelope.get('receipt_id')
     if not isinstance(receipt, str) or RECEIPT.fullmatch(receipt) is None:
         return None
-    if envelope.get('schema_version') != '1.1':
+    version = envelope.get('schema_version')
+    if not isinstance(version, str) or SCHEMA_VERSION.fullmatch(version) is None:
         return None
     status = envelope.get('status')
     if action == 'verify' and status != 'supported':

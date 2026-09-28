@@ -16,14 +16,6 @@ No genuine European Commission TARIC snapshot is currently installed. Official T
 
 ## Example actions
 
-### Discover current capabilities
-
-```json
-{"action":"capabilities","input":{}}
-```
-
-The public Actor action schema does not currently include capability discovery; use the canonical MCP `factrail_capabilities` tool directly before relying on availability.
-
 ### Verify a French company
 
 ```json
@@ -53,7 +45,7 @@ The public Actor action schema does not currently include capability discovery; 
 }
 ```
 
-The sample values are illustrative caller inputs. Assessment outputs can be partial/provisional and are not binding customs decisions.
+Optional: `"assessment_date": "YYYY-MM-DD"` sets the TARIC effective/simulation date; availability depends on the installed snapshot. The sample values are illustrative caller inputs. Assessment outputs can be partial/provisional and are not binding customs decisions.
 
 ### Retrieve a receipt
 

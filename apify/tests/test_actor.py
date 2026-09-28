@@ -18,8 +18,8 @@ IMPORT = {'action': 'assess_import', 'input': {'product': 'insulated steel bottl
           'destination_country': 'FR', 'quantity': 5, 'goods_value': 1000, 'currency': 'EUR'}}
 
 
-def envelope(*, status='supported', coverage='sufficient', failures=None, source_status='available'):
-    return {'schema_version': '1.1', 'status': status, 'receipt_id': RECEIPT,
+def envelope(*, status='supported', coverage='sufficient', failures=None, source_status='available', version='1.1'):
+    return {'schema_version': version, 'status': status, 'receipt_id': RECEIPT,
             'state_fingerprint': 'fs_' + 'b' * 64,
             'coverage': {'level': coverage, 'fields_requested': ['status'], 'fields_resolved': ['status'],
                          'fields_unresolved': [] if coverage == 'sufficient' else ['legal_name'],
@@ -222,3 +222,24 @@ def test_schema_snapshot_matches_canonical_source():
         'factrail_verify', 'factrail_assess', 'factrail_get_receipt'}}
     from src.validation import SCHEMAS
     assert SCHEMAS == expected
+
+
+@pytest.mark.parametrize('action,event', [('verify', 'factrail-verify'), ('assess_import', 'factrail-assess-import')])
+@pytest.mark.parametrize('version', ['1.1', '1.2', '1.10'])
+def test_supported_schema_versions_are_billable(action, event, version):
+    result = envelope(version=version)
+    if version != '1.1':
+        result['facts'][0]['support_level'] = 'authoritative'
+    assert billable_event(action, result) == event
+
+
+@pytest.mark.parametrize('version', ['1.0', '2.0', '1', '1.2.1', '1.02', '', None, 1.2])
+def test_unknown_schema_versions_are_free(version):
+    assert billable_event('verify', envelope(version=version)) is None
+
+
+def test_import_accepts_assessment_date():
+    payload = {'action': 'assess_import', 'input': {**IMPORT['input'], 'assessment_date': '2026-01-01'}}
+    assert validate_action(payload)[2]['parameters']['assessment_date'] == '2026-01-01'
+    with pytest.raises(InputError):
+        validate_action({'action': 'assess_import', 'input': {**IMPORT['input'], 'assessment_date': 'soon'}})
