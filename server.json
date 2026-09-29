@@ -3,7 +3,7 @@
   "name": "io.github.baronsigma/factrail",
   "title": "FACTRAIL",
   "description": "Evidence infrastructure for agents: source-backed company verification and beta import assessment.",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "remotes": [
     {
       "type": "streamable-http",

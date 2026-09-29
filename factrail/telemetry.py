@@ -494,7 +494,7 @@ def build_client_context(request: Any) -> dict:
             "client_family": client_family,
             "daily_client_hash": daily_hash,
             "origin_class": origin_class,
-            "server_version": os.environ.get("FACTRAIL_VERSION", "2.4.0"),
+            "server_version": os.environ.get("FACTRAIL_VERSION", "2.4.1"),
             "request_id": getattr(getattr(request, "state", None), "request_id", None),
         }
     except Exception:

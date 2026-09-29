@@ -29,7 +29,7 @@ async def test_release_and_contract_versions_and_manifest():
     manifest = json.loads((root / "server.json").read_text())
     from factrail.mcp_http_server import app as http_app
     from factrail.mcp_server import app as stdio_app
-    assert package["project"]["version"] == manifest["version"] == http_app.version == stdio_app.version == "2.4.0"
+    assert package["project"]["version"] == manifest["version"] == http_app.version == stdio_app.version == "2.4.1"
     assert sample_envelope().schema_version == "1.2"
     runtime = {tool.name: tool for tool in (await handle_list_tools(None, None)).tools}
     for tool in manifest["tools"]:

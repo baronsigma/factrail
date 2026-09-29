@@ -1,6 +1,6 @@
 # FACTRAIL Evidence Core
 
-FACTRAIL package version 2.4.0 emits EvidenceEnvelope contract `1.2`; the contract version is independent of the package version. The current JSON Schema is [`schemas/evidence-envelope-1.2.schema.json`](../schemas/evidence-envelope-1.2.schema.json).
+FACTRAIL package version 2.4.1 emits EvidenceEnvelope contract `1.2`; the contract version is independent of the package version. The current JSON Schema is [`schemas/evidence-envelope-1.2.schema.json`](../schemas/evidence-envelope-1.2.schema.json).
 
 ## Contract
 

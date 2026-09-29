@@ -12,6 +12,7 @@ from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
 from mcp.server.stdio import stdio_server
 
+from . import __version__
 from .models import FrenchCompany
 from .sources.insee import (
     InseeAdapter,
@@ -26,28 +27,14 @@ logger = logging.getLogger(__name__)
 async def handle_list_tools(
     context: Any, params: types.PaginatedRequestParams | None
 ) -> types.ListToolsResult:
-    from .mcp_http_server import handle_list_tools as http_list_tools
-    other_tools = [tool for tool in (await http_list_tools(context, params)).tools
-                   if tool.name != "verify_french_company"]
-    return types.ListToolsResult(
-        tools=[
-            types.Tool(
-                name="verify_french_company",
-                description="Compatibility tool for French company lookup by SIREN/SIRET. New integrations should prefer factrail_verify for an EvidenceEnvelope.",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "identifier": {
-                            "type": "string",
-                            "description": "A 9-digit SIREN or 14-digit SIRET.",
-                        }
-                    },
-                    "required": ["identifier"],
-                },
-            ),
-            *other_tools,
-        ]
-    )
+    """Same tool metadata as the HTTP server (shared tool catalog).
+
+    ``verify_french_company`` is listed first for stdio compatibility.
+    """
+    from .tool_catalog import listed_tools
+    tools = listed_tools()
+    tools.sort(key=lambda tool: tool.name != "verify_french_company")
+    return types.ListToolsResult(tools=tools)
 
 
 async def handle_call_tool(
@@ -100,7 +87,7 @@ async def handle_call_tool(
 
 app = Server(
     "factrail",
-    version="2.4.0",
+    version=__version__,
     on_list_tools=handle_list_tools,
     on_call_tool=handle_call_tool,
 )
@@ -113,7 +100,7 @@ async def run() -> None:
             write_stream,
             InitializationOptions(
                 server_name="factrail",
-                server_version="2.4.0",
+                server_version=__version__,
                 capabilities=app.get_capabilities(
                     notification_options=NotificationOptions(),
                     experimental_capabilities={},

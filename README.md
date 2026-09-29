@@ -4,7 +4,7 @@
 
 FACTRAIL gives agents structured, source-backed real-world evidence with provenance, freshness, conflicts, support levels, coverage, unresolved dependencies, and reusable receipts. It is a public beta: capabilities are defined and inspectable, and unsupported scope or failed sources are represented explicitly.
 
-FACTRAIL is a Python [Model Context Protocol](https://modelcontextprotocol.io/) server. This repository contains package version 2.4.0, the Evidence Contract, tests, operator tooling, and the static site. Hosted deployments may run a different release; inspect the live `tools/list` and `factrail_capabilities` results before relying on deployed capabilities.
+FACTRAIL is a Python [Model Context Protocol](https://modelcontextprotocol.io/) server. This repository contains package version 2.4.1, the Evidence Contract, tests, operator tooling, and the static site. Hosted deployments may run a different release; inspect the live `tools/list` and `factrail_capabilities` results before relying on deployed capabilities.
 
 ## Connect via MCP
 
@@ -141,6 +141,24 @@ python3 -m factrail.mcp_http_server
 HTTP defaults to port 8765. Use `FACTRAIL_HOST` and `FACTRAIL_PORT` to change the bind address and port. Local MCP endpoint: `POST http://localhost:8765/mcp`; health endpoint: `/healthz`. For stdio clients, run `python3 -m factrail.mcp_server`.
 
 Get an INSEE key through the [INSEE API portal](https://portail-api.insee.fr/). Default SQLite cache is `/tmp/factrail_cache.db`; set `FACTRAIL_CACHE_PATH` to a persistent path for durable receipts. The server includes per-client rate limiting and stale cache fallback for company lookups.
+
+### Public HTTP settings
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `FACTRAIL_ALLOWED_HOSTS` | localhost/loopback | Host allowlist (DNS-rebinding protection, 421 on mismatch). |
+| `FACTRAIL_ALLOWED_ORIGINS` | unset | Comma-separated Origin allowlist. Unset: requests carrying an `Origin` header are rejected (403); Origin-less API clients work. `*`: any Origin allowed, CORS enabled; Host check stays on. |
+| `FACTRAIL_RATE_LIMIT_PER_MIN` | `60` | Requests per window per client (`0` disables). The client is `CF-Connecting-IP`, then the first `X-Forwarded-For` entry, trusted only when the direct peer is loopback. |
+| `FACTRAIL_RATE_WINDOW_SECONDS` | `60` | Sliding window length. |
+| `FACTRAIL_RATE_BLOCK_AFTER` | `30` | Rejected requests within one window before a temporary block (`0` disables). |
+| `FACTRAIL_RATE_BLOCK_SECONDS` | `300` | Block duration. |
+| `FACTRAIL_GATEWAY_USER_AGENTS` | `SmitheryBot` | Case-insensitive User-Agent substrings identifying MCP gateways (a Smithery `CF-Worker` header also counts). |
+| `FACTRAIL_GATEWAY_RATE_LIMIT_PER_MIN` | `600` | Requests per window for each gateway bucket. |
+| `FACTRAIL_GATEWAY_RATE_BLOCK_AFTER` | `0` | Block threshold for gateway buckets (`0` = never block). |
+| `FACTRAIL_GATEWAY_CLIENT_HEADER` | unset | Header a gateway uses to forward an end-user id; when present, gateway traffic is keyed per end user. |
+| `FACTRAIL_HIDE_LEGACY_TOOLS` | off | Hide deprecated legacy tools from `tools/list` (they stay callable). |
+
+Excess requests receive HTTP 429 with a JSON body and `Retry-After`. A static server card is served at `/.well-known/mcp/server-card.json`.
 
 ## Current limitations
 

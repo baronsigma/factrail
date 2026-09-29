@@ -1,10 +1,10 @@
-"""FACTRAIL v2.4.0 public beta remote MCP server (Streamable HTTP).
+"""FACTRAIL public beta remote MCP server (Streamable HTTP).
 
 Aligned with MCP specification 2026-07-28:
 - POST /mcp: stateless JSON-RPC requests (no protocol sessions, no GET streams)
 - MCP-Protocol-Version header validated by SDK transport
 - Origin header validation (DNS rebinding protection)
-- Per-client rate limiting with bounded quota waiting
+- Per-client rate limiting (tunnel-aware client IP, separate gateway bucket, non-blocking 429)
 - SQLite cache with TTL, schema versioning, stale-on-upstream-failure
 - Structured logs: request ID, latency, cache state, upstream sources
 - /healthz and /readyz endpoints
@@ -34,6 +34,7 @@ import uvicorn
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.routing import Route
@@ -49,7 +50,9 @@ from .evidence.company_fr import FIELD_MAP
 from .evidence.receipts import RECEIPT_ID_PATTERN
 from .models import FrenchCompany
 from .trade.models import AssessImportInput
-from .per_client_limiter import get_per_client_limiter
+from .per_client_limiter import get_gateway_limiter, get_per_client_limiter, resolve_client
+from .tool_catalog import listed_tools
+from . import __version__
 from .sources.insee import (
     InseeAdapter,
     NotFoundError,
@@ -104,14 +107,19 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
 # ---------------------------------------------------------------------------
 
 class OriginValidationMiddleware(BaseHTTPMiddleware):
-    """Validate Origin header per MCP spec 2026-07-28 §Security & Endpoint."""
+    """Validate Origin header per MCP spec 2026-07-28 §Security & Endpoint.
+
+    ``FACTRAIL_ALLOWED_ORIGINS="*"`` allows any Origin (public, read-only,
+    unauthenticated server); the Host check stays active.
+    """
 
     def __init__(self, app: ASGIApp, allowed_origins: list[str] | None = None) -> None:
         super().__init__(app)
         self.allowed_origins = allowed_origins or []
+        self.allow_any = "*" in self.allowed_origins
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
-        if request.url.path == "/mcp" and request.method == "POST":
+        if request.url.path == "/mcp" and request.method == "POST" and not self.allow_any:
             origin = request.headers.get("origin")
             if origin is not None:
                 if self.allowed_origins and origin not in self.allowed_origins:
@@ -123,33 +131,75 @@ class OriginValidationMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+class HostValidationMiddleware(BaseHTTPMiddleware):
+    """Host-header check (DNS rebinding protection) for /mcp.
+
+    Only installed when ``FACTRAIL_ALLOWED_ORIGINS="*"``: the MCP SDK cannot
+    express a wildcard Origin, so its DNS-rebinding middleware is disabled in
+    that mode and this middleware keeps enforcing the identical Host allowlist
+    (421 on mismatch, same semantics as the SDK).
+    """
+
+    def __init__(self, app: ASGIApp, allowed_hosts: list[str] | None = None) -> None:
+        super().__init__(app)
+        self.allowed_hosts = allowed_hosts or []
+
+    def _host_allowed(self, host: str | None) -> bool:
+        if not host:
+            return False
+        if host in self.allowed_hosts:
+            return True
+        for allowed in self.allowed_hosts:
+            if allowed.endswith(":*") and host.startswith(allowed[:-2] + ":"):
+                return True
+        return False
+
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        path = request.url.path
+        if (path == "/mcp" or path.startswith("/mcp/")) and request.method != "OPTIONS":
+            if not self._host_allowed(request.headers.get("host")):
+                logger.warning("Host rejected")
+                return Response("Invalid Host header", status_code=421)
+        return await call_next(request)
+
+
 # ---------------------------------------------------------------------------
 # Per-client rate limiting
 # ---------------------------------------------------------------------------
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Enforce per-client quota."""
+    """Enforce per-client quota on POST /mcp without blocking the event loop.
 
-    def __init__(self, app: ASGIApp, limiter: Any = None) -> None:
+    The client is identified from CF-Connecting-IP / X-Forwarded-For only when
+    the direct peer is loopback (trusted local tunnel); known gateway traffic
+    (Smithery) uses a separate, larger bucket.  See ``per_client_limiter``.
+    """
+
+    def __init__(self, app: ASGIApp, limiter: Any = None, gateway_limiter: Any = None) -> None:
         super().__init__(app)
         self.limiter = limiter or get_per_client_limiter()
+        self.gateway_limiter = gateway_limiter or get_gateway_limiter()
 
     async def dispatch(self, request: Request, call_next: Any) -> Response:
         if request.url.path == "/mcp" and request.method == "POST":
-            client_id = request.client.host if request.client else "unknown"
-            result = self.limiter.check(client_id)
+            peer = request.client.host if request.client else None
+            identity = resolve_client(peer, request.headers)
+            limiter = self.gateway_limiter if identity.kind == "gateway" else self.limiter
+            result = limiter.check(identity.key)
             if not result["allowed"]:
+                retry_after = max(1, int(-(-result["retry_after"] // 1)))
+                logger.info("rate_limited", extra={"client_kind": identity.kind})
                 resp = JSONResponse(
                     status_code=429,
                     content={
                         "error": "rate_limited",
-                        "message": f"Quota exceeded. Retry after {result['retry_after']}s.",
-                        "retry_after": result["retry_after"],
+                        "message": f"Quota exceeded. Retry after {retry_after}s.",
+                        "retry_after": retry_after,
                         "limit": result["limit"],
                         "window": result["window"],
                     },
                 )
-                resp.headers["Retry-After"] = str(int(result["retry_after"]) + 1)
+                resp.headers["Retry-After"] = str(retry_after)
                 return resp
         return await call_next(request)
 
@@ -161,196 +211,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 async def handle_list_tools(
     context: Any, params: types.PaginatedRequestParams | None
 ) -> types.ListToolsResult:
-    return types.ListToolsResult(
-        tools=[
-            types.Tool(
-                name="factrail_capabilities",
-                description="Discover available capabilities, inputs, fields, sources, versions, and limitations. Call first to inspect current coverage and source state.",
-                input_schema={"type": "object", "properties": {
-                    "operation": {"type": "string", "enum": ["verify", "assess"]},
-                    "capability": {"type": "string", "enum": ["company_fr", "import"]}}, "additionalProperties": False},
-                output_schema={"type": "object", "properties": {"capabilities": {"type": "array", "items": {"type": "object"}}}, "required": ["capabilities"]},
-                annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
-            ),
-            types.Tool(
-                name="factrail_assess",
-                description="Assess a structured real-world situation and return an EvidenceEnvelope. Currently supports beta import assessments; results expose source coverage and support levels.",
-                input_schema={"type": "object", "properties": {
-                    "assessment_type": {"type": "string", "enum": ["import"], "description": "Currently only import is supported."},
-                    "parameters": {**AssessImportInput.model_json_schema(), "additionalProperties": False}},
-                    "required": ["assessment_type", "parameters"], "additionalProperties": False},
-                output_schema=EvidenceEnvelope.model_json_schema(),
-                annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True),
-            ),
-            types.Tool(
-                name="factrail_verify",
-                description="Verify structured facts for a supported subject. Currently supports French companies by SIREN or SIRET; returns Evidence with provenance, freshness, coverage, conflicts, and a receipt.",
-                input_schema={"type": "object", "properties": {
-                    "subject_type": {"type": "string", "enum": ["company_fr"], "description": "Currently only French companies are supported."},
-                    "identifier": {"type": "string", "pattern": "^([0-9]{9}|[0-9]{14})$", "description": "A 9-digit SIREN or 14-digit SIRET."},
-                    "fields": {"type": "array", "minItems": 1, "items": {"type": "string", "enum": sorted(FIELD_MAP)}, "description": "Optional company fields to resolve; omit for the default set."}},
-                    "required": ["subject_type", "identifier"], "additionalProperties": False},
-                output_schema=EvidenceEnvelope.model_json_schema(),
-                annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=True),
-            ),
-            types.Tool(
-                name="factrail_get_receipt",
-                description="Retrieve a stored EvidenceEnvelope by receipt ID. Recomputes its content hash and rejects altered content; this checks integrity, not truth.",
-                input_schema={"type": "object", "properties": {"receipt_id": {"type": "string", "pattern": "^fr_[0-9a-f]{64}$", "description": "A FACTRAIL evidence observation ID."}}, "required": ["receipt_id"], "additionalProperties": False},
-                output_schema=EvidenceEnvelope.model_json_schema(),
-                annotations=types.ToolAnnotations(read_only_hint=True, destructive_hint=False, idempotent_hint=True, open_world_hint=False),
-            ),
-            types.Tool(
-                name="verify_french_company",
-                description=(
-                    "Compatibility tool for French company lookup by SIREN/SIRET. "
-                    "New integrations should prefer factrail_verify for an EvidenceEnvelope."
-                ),
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "identifier": {
-                            "type": "string",
-                            "description": "A 9-digit SIREN or 14-digit SIRET.",
-                        }
-                    },
-                    "required": ["identifier"],
-                },
-                annotations=types.ToolAnnotations(
-                    read_only_hint=True,
-                    destructive_hint=False,
-                    idempotent_hint=True,
-                    open_world_hint=True,
-                ),
-            ),
-            types.Tool(
-                name="assess_import",
-                description=(
-                    "Compatibility tool for beta EU import assessment. Coverage may be partial or provisional; "
-                    "this is not a binding customs result. New integrations should prefer factrail_assess."
-                ),
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "product": {
-                            "type": "string",
-                            "description": "Short product description (e.g. '750ml insulated stainless steel drinking bottle').",
-                        },
-                        "origin_country": {
-                            "type": "string",
-                            "description": "ISO 3166-1 alpha-2 origin country code (e.g. 'CN').",
-                        },
-                        "destination_country": {
-                            "type": "string",
-                            "description": "ISO 3166-1 alpha-2 EU destination country code (e.g. 'FR'). V0 supports EU member states only.",
-                        },
-                        "quantity": {
-                            "type": "integer",
-                            "description": "Number of units.",
-                        },
-                        "goods_value": {
-                            "type": "number",
-                            "description": "Total goods value in the given currency.",
-                        },
-                        "currency": {
-                            "type": "string",
-                            "description": "ISO 4217 currency code (e.g. 'EUR').",
-                        },
-                        "known_hs_code": {
-                            "type": "string",
-                            "description": "Optional known HS code (6-10 digits). If supplied, validated and enriched.",
-                        },
-                        "material": {
-                            "type": "string",
-                            "description": "Optional primary material (e.g. 'stainless steel').",
-                        },
-                        "weight_kg": {
-                            "type": "number",
-                            "description": "Optional gross weight per unit in kg.",
-                        },
-                        "dimensions": {
-                            "type": "string",
-                            "description": "Optional product dimensions (e.g. '25x8x8 cm').",
-                        },
-                        "manufacturer": {
-                            "type": "string",
-                            "description": "Optional manufacturer name.",
-                        },
-                        "model": {
-                            "type": "string",
-                            "description": "Optional model identifier.",
-                        },
-                        "incoterm": {
-                            "type": "string",
-                            "description": "Optional Incoterm (e.g. 'FCA', 'CIF', 'DDP').",
-                        },
-                        "shipping_mode": {
-                            "type": "string",
-                            "description": "Optional shipping mode (e.g. 'sea', 'air', 'road').",
-                        },
-                        "origin_location": {
-                            "type": "string",
-                            "description": "Optional origin city/port/location.",
-                        },
-                        "destination_location": {
-                            "type": "string",
-                            "description": "Optional destination city/port/location.",
-                        },
-                        "freight_cost": {
-                            "type": "number",
-                            "description": "Optional total freight cost in the given currency.",
-                        },
-                        "insurance_cost": {
-                            "type": "number",
-                            "description": "Optional total insurance cost in the given currency.",
-                        },
-                    },
-                    "required": [
-                        "product",
-                        "origin_country",
-                        "destination_country",
-                        "quantity",
-                        "goods_value",
-                        "currency",
-                    ],
-                },
-                annotations=types.ToolAnnotations(
-                    read_only_hint=True,
-                    destructive_hint=False,
-                    idempotent_hint=True,
-                    open_world_hint=True,
-                ),
-            ),
-            types.Tool(
-                name="analyze_company",
-                description="Deprecated experimental compatibility-only tool. Financial and credit data sources are unavailable; returned fields are null. Prefer factrail_verify for supported company facts.",
-                input_schema={
-                    "type": "object",
-                    "properties": {
-                        "siren": {
-                            "type": "string",
-                            "description": "Optional SIREN (9-digit) or SIRET (14-digit) identifier.",
-                        },
-                        "company_name": {
-                            "type": "string",
-                            "description": "Optional caller-provided display name; it is echoed without verification.",
-                        },
-                        "country_code": {
-                            "type": "string",
-                            "description": "ISO 3166-1 alpha-2 country code.",
-                        },
-                    },
-                    "required": [],
-                },
-                annotations=types.ToolAnnotations(
-                    read_only_hint=True,
-                    destructive_hint=False,
-                    idempotent_hint=True,
-                    open_world_hint=True,
-                ),
-            ),
-        ]
-    )
+    return types.ListToolsResult(tools=listed_tools())
 
 
 async def handle_call_tool(
@@ -720,7 +581,7 @@ async def _cached_lookup(identifier: str) -> FrenchCompany | dict:
 
 app = Server(
     "factrail",
-    version="2.4.0",
+    version=__version__,
     on_list_tools=handle_list_tools,
     on_call_tool=handle_call_tool,
 )
@@ -789,6 +650,10 @@ def _get_allowed_origins() -> list[str]:
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 
+def _allow_any_origin() -> bool:
+    return "*" in _get_allowed_origins()
+
+
 def _build_transport_security() -> TransportSecuritySettings:
     """Build the MCP SDK transport security configuration.
 
@@ -796,10 +661,20 @@ def _build_transport_security() -> TransportSecuritySettings:
     - ``allowed_hosts`` is wired from ``FACTRAIL_ALLOWED_HOSTS`` so that
       public tunnel hostnames such as ``*.trycloudflare.com`` are explicitly
       allowlisted instead of being rejected with 421.
-    - ``allowed_origins`` is wired from ``FACTRAIL_ALLOWED_ORIGINS`` and is
-      left empty by default so that missing Origin headers (same-origin / API
-      clients) continue to be accepted.
+    - ``allowed_origins`` is wired from ``FACTRAIL_ALLOWED_ORIGINS``.  Note the
+      SDK rejects *any* Origin header not in the list, so with the variable
+      unset browser requests carrying an Origin are rejected with 403 while
+      Origin-less API clients are accepted.
+    - ``FACTRAIL_ALLOWED_ORIGINS="*"``: the SDK has no wildcard support, so its
+      DNS-rebinding middleware (Host + Origin) is disabled and FACTRAIL's
+      ``HostValidationMiddleware`` enforces the same Host allowlist instead.
     """
+    if _allow_any_origin():
+        return TransportSecuritySettings(
+            enable_dns_rebinding_protection=False,
+            allowed_hosts=_get_allowed_hosts(),
+            allowed_origins=[],
+        )
     return TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=_get_allowed_hosts(),
@@ -823,6 +698,21 @@ async def glama_claim(request: Request) -> Response:
     )
 
 
+SERVER_CARD_PATH = "/.well-known/mcp/server-card.json"
+
+
+async def server_card(request: Request) -> Response:
+    """Serve the static FACTRAIL server card (public, no auth)."""
+    from .server_card import build_server_card
+    return JSONResponse(
+        content=build_server_card(),
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
 def build_app() -> Starlette:
     """Build the production Starlette app."""
     mcp_starlette = app.streamable_http_app(
@@ -833,6 +723,7 @@ def build_app() -> Starlette:
             Route("/healthz", healthz, methods=["GET"]),
             Route("/readyz", readyz, methods=["GET"]),
             Route("/.well-known/glama.json", glama_claim, methods=["GET"]),
+            Route(SERVER_CARD_PATH, server_card, methods=["GET"]),
         ],
     )
 
@@ -842,12 +733,28 @@ def build_app() -> Starlette:
     # TransportSecurityMiddleware.  Factrail's own OriginValidationMiddleware
     # is retained below so that FACTRAIL_ALLOWED_ORIGINS continues to work
     # independently and existing origin-validation behaviour is unchanged.
-    mcp_starlette.user_middleware = [
-        Middleware(StructuredLoggingMiddleware),
-        Middleware(OriginValidationMiddleware, allowed_origins=_get_allowed_origins()),
+    allowed_origins = _get_allowed_origins()
+    middleware: list[Middleware] = []
+    if allowed_origins:
+        # Browser-based MCP clients need CORS (including preflight) to reach
+        # /mcp; only enabled when origins are explicitly configured.
+        middleware.append(Middleware(
+            CORSMiddleware,
+            allow_origins=["*"] if "*" in allowed_origins else allowed_origins,
+            allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+            allow_headers=["*"],
+            expose_headers=["Mcp-Session-Id", "MCP-Protocol-Version", "Retry-After", "X-Request-ID"],
+            max_age=600,
+        ))
+    middleware.append(Middleware(StructuredLoggingMiddleware))
+    if "*" in allowed_origins:
+        middleware.append(Middleware(HostValidationMiddleware, allowed_hosts=_get_allowed_hosts()))
+    middleware += [
+        Middleware(OriginValidationMiddleware, allowed_origins=allowed_origins),
         Middleware(RateLimitMiddleware),
         Middleware(TelemetryMiddleware),
     ]
+    mcp_starlette.user_middleware = middleware
 
     # Rebuild the middleware stack
     mcp_starlette.build_middleware_stack()
@@ -884,7 +791,7 @@ class FactrailServer:
             except NotImplementedError:
                 pass
 
-        logger.info("factrail_v2.4.0_listening", extra={"host": self.host, "port": self.port})
+        logger.info(f"factrail_v{__version__}_listening", extra={"host": self.host, "port": self.port})
         await server.serve()
 
     def _request_shutdown(self) -> None:

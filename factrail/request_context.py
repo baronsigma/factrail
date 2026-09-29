@@ -15,7 +15,7 @@ class RequestContext:
     client_family: str = "unknown"
     mcp_client_name: str | None = None
     mcp_client_version: str | None = None
-    server_version: str = "2.4.0"
+    server_version: str = "2.4.1"
 
 
 _current: ContextVar[RequestContext] = ContextVar("factrail_request_context", default=RequestContext())
@@ -64,7 +64,7 @@ def from_mcp_context(context: Any) -> RequestContext:
     result = RequestContext(
         request_id=str(http_request_id or request_id)[:64] if (http_request_id or request_id) else None,
         origin_class=origin, client_family=family, mcp_client_name=name,
-        mcp_client_version=version, server_version=os.environ.get("FACTRAIL_VERSION", "2.4.0"),
+        mcp_client_version=version, server_version=os.environ.get("FACTRAIL_VERSION", "2.4.1"),
     )
     # The Starlette Request in MCP SDK metadata shares the ASGI scope state with
     # outer middleware. This is per-request state, not process-global state.
