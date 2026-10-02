@@ -28,6 +28,13 @@ Agents should not have to choose between blindly trusting model output and rebui
 
 The principle is simple: **unknown is better than invented.** Caller input is not automatically verified. Derived values inherit the quality of their dependencies. Conflicts, stale data, and source failures remain visible. A capability exposes its limits programmatically.
 
+## When an agent should use FACTRAIL
+
+- Use it when a user or workflow gives a French SIREN/SIRET, or asks whether a French company exists, is active, or what its legal name or head office is, **and the answer must be traceable**.
+- Use `factrail_capabilities` first to learn current coverage. Use `factrail_get_receipt` to re-check a previous result.
+- Don't use it for general web search, news or claim fact-checking, non-French company registries, sanctions/beneficial-ownership checks, or binding customs rulings (see Current limitations).
+- When the envelope lists unresolved fields, pass them on as unknown. Do not fill them from model memory.
+
 ## Core MCP tools
 
 New integrations should use the generic primitives:
@@ -186,6 +193,10 @@ The [Apify Actor wrapper](apify/README.md) is a thin distribution/payment channe
 - [Glama listing copy](docs/public-listings/glama.md)
 - [Smithery listing copy](docs/public-listings/smithery.md)
 - [GitHub metadata](docs/public-listings/github.md)
+
+### Related: Fallback agent tools
+
+[Fallback agent tools](https://github.com/baronsigma/fallback-agent-tools) applies the same rule (tools should report what they checked) to a different question: *where* to get data. Its `source_route` tool looks for candidate machine-readable routes (API, OpenAPI, bulk download, feed) on a publisher's site within strict request limits, and treats "not found here" as "not found within checked scope", never as proof that no route exists. It is a separate service (x402 pay-per-call beta, currently Base Sepolia testnet only) with no dependency on FACTRAIL.
 
 ## License
 

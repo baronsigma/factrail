@@ -45,3 +45,7 @@ Receipts are content-addressed and integrity-checked. They are not blockchain re
 ## Not currently provided
 
 No arbitrary natural-language fact checking, general web search or URL fetching, news verification, complete global company verification, dedicated beneficial ownership/sanctions/EORI resolver, authoritative installed EU TARIC data, authoritative EU VAT integration, complete authoritative landed-cost chain, arbitrary regulatory verification, signed receipts, blockchain/immutable global ledger, continuous watches, or general-purpose LLM reasoning over unknown claims.
+
+## Related
+
+- Fallback agent tools (separate service, same design rule): https://fallback.factrail.online/llms.txt. `source_route` returns candidate machine-readable data routes within a bounded checked scope; absence is not proof of nonexistence.
