@@ -1,0 +1,9 @@
+.git
+.env
+.venv
+**/__pycache__
+tests
+apify
+site
+docs
+benchmark_dataset.json
